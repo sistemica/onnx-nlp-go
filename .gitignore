@@ -1,0 +1,6 @@
+*.test
+*.prof
+*.out
+*.exe
+/onnxgo
+/gliner

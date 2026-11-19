@@ -1,0 +1,85 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(std430, binding = 0) readonly buffer MatrixA { float a[]; };
+layout(std430, binding = 1) readonly buffer MatrixB { float b[]; };
+layout(std430, binding = 2) buffer MatrixC { float c[]; };
+
+layout(push_constant) uniform Dimensions {
+    uint m;
+    uint k;
+    uint n;
+} dim;
+
+const uint BM = 64;
+const uint BN = 64;
+const uint BK = 16;
+const uint TM = 4;
+const uint TN = 4;
+
+shared float tileA[BK][BM];
+shared float tileB[BK][BN];
+
+void main() {
+    const uint tx = gl_LocalInvocationID.x;
+    const uint ty = gl_LocalInvocationID.y;
+    const uint tid = ty * 16 + tx;
+    const uint rowBase = gl_WorkGroupID.y * BM;
+    const uint colBase = gl_WorkGroupID.x * BN;
+
+    vec4 acc0 = vec4(0.0);
+    vec4 acc1 = vec4(0.0);
+    vec4 acc2 = vec4(0.0);
+    vec4 acc3 = vec4(0.0);
+
+    for (uint k0 = 0; k0 < dim.k; k0 += BK) {
+        for (uint i = 0; i < 4; i++) {
+            const uint idx = tid + i * 256;
+            const uint r = idx / BK;
+            const uint cc = idx % BK;
+            const uint gr = rowBase + r;
+            const uint gc = k0 + cc;
+            tileA[cc][r] = (gr < dim.m && gc < dim.k) ? a[gr * dim.k + gc] : 0.0;
+        }
+        for (uint i = 0; i < 4; i++) {
+            const uint idx = tid + i * 256;
+            const uint r = idx / BN;
+            const uint cc = idx % BN;
+            const uint gr = k0 + r;
+            const uint gc = colBase + cc;
+            tileB[r][cc] = (gr < dim.k && gc < dim.n) ? b[gr * dim.n + gc] : 0.0;
+        }
+        barrier();
+        for (uint kk = 0; kk < BK; kk++) {
+            const vec4 ra = vec4(tileA[kk][ty * TM], tileA[kk][ty * TM + 1], tileA[kk][ty * TM + 2], tileA[kk][ty * TM + 3]);
+            const vec4 rb = vec4(tileB[kk][tx * TN], tileB[kk][tx * TN + 1], tileB[kk][tx * TN + 2], tileB[kk][tx * TN + 3]);
+            acc0 += ra.x * rb;
+            acc1 += ra.y * rb;
+            acc2 += ra.z * rb;
+            acc3 += ra.w * rb;
+        }
+        barrier();
+    }
+
+    for (uint i = 0; i < TM; i++) {
+        const uint gr = rowBase + ty * TM + i;
+        if (gr >= dim.m) {
+            continue;
+        }
+        const uint gc = colBase + tx * TN;
+        const vec4 v = (i == 0u) ? acc0 : (i == 1u) ? acc1 : (i == 2u) ? acc2 : acc3;
+        if (gc + 3 < dim.n) {
+            c[gr * dim.n + gc] = v.x;
+            c[gr * dim.n + gc + 1] = v.y;
+            c[gr * dim.n + gc + 2] = v.z;
+            c[gr * dim.n + gc + 3] = v.w;
+        } else {
+            for (uint j = 0; j < TN; j++) {
+                if (gc + j < dim.n) {
+                    c[gr * dim.n + gc + j] = v[j];
+                }
+            }
+        }
+    }
+}
