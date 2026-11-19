@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"onnxgo/internal/fixture"
+	"github.com/sistemica/onnx-nlp-go/internal/fixture"
 )
 
 func fixtureDir(t *testing.T) string {

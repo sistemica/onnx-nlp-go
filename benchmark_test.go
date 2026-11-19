@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"fmt"
@@ -40,7 +40,7 @@ func benchRun(b *testing.B, s *Session, in map[string]*Tensor) {
 	if _, err := s.Run(in); err != nil {
 		b.Fatal(err)
 	}
-	if os.Getenv("ONNXGO_OPSTATS") != "" {
+	if os.Getenv("ONNXNLP_OPSTATS") != "" {
 		s.EnableProfiling()
 		defer func() {
 			for i, st := range s.OpStats() {
@@ -76,7 +76,7 @@ func BenchmarkMatMul(b *testing.B) {
 }
 
 func BenchmarkGLiNEREncoder(b *testing.B) {
-	s, err := Load(filepath.Join(benchEnv(b, "ONNXGO_MODELS"), "onnx", "encoder.onnx"))
+	s, err := Load(filepath.Join(benchEnv(b, "ONNXNLP_MODELS"), "onnx", "encoder.onnx"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func onesInt(n int) []int64 {
 }
 
 func BenchmarkGLiNERBoundary(b *testing.B) {
-	s, err := Load(filepath.Join(benchEnv(b, "ONNXGO_MODELS"), "onnx", "boundary.onnx"))
+	s, err := Load(filepath.Join(benchEnv(b, "ONNXNLP_MODELS"), "onnx", "boundary.onnx"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func BenchmarkGLiNERBoundary(b *testing.B) {
 }
 
 func BenchmarkMiniLM(b *testing.B) {
-	s, err := Load(filepath.Join(benchEnv(b, "ONNXGO_MINILM"), "onnx", "model.onnx"))
+	s, err := Load(filepath.Join(benchEnv(b, "ONNXNLP_MINILM"), "onnx", "model.onnx"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func BenchmarkMiniLM(b *testing.B) {
 }
 
 func BenchmarkExtractEntities(b *testing.B) {
-	g, err := LoadGLiNER(benchEnv(b, "ONNXGO_MODELS"))
+	g, err := LoadGLiNER(benchEnv(b, "ONNXNLP_MODELS"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func BenchmarkExtractEntities(b *testing.B) {
 }
 
 func BenchmarkKeyBERTExtract(b *testing.B) {
-	e, err := LoadEmbedder(benchEnv(b, "ONNXGO_MINILM"))
+	e, err := LoadEmbedder(benchEnv(b, "ONNXNLP_MINILM"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func BenchmarkKeyBERTExtract(b *testing.B) {
 
 func BenchmarkTokenizers(b *testing.B) {
 	b.Run("unigram", func(b *testing.B) {
-		tok, err := LoadTokenizer(filepath.Join(benchEnv(b, "ONNXGO_MODELS"), "tokenizer.json"), nil)
+		tok, err := LoadTokenizer(filepath.Join(benchEnv(b, "ONNXNLP_MODELS"), "tokenizer.json"), nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func BenchmarkTokenizers(b *testing.B) {
 		}
 	})
 	b.Run("wordpiece", func(b *testing.B) {
-		wp, err := LoadWordPiece(filepath.Join(benchEnv(b, "ONNXGO_MINILM"), "tokenizer.json"))
+		wp, err := LoadWordPiece(filepath.Join(benchEnv(b, "ONNXNLP_MINILM"), "tokenizer.json"))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -189,7 +189,7 @@ func BenchmarkTokenizers(b *testing.B) {
 }
 
 func BenchmarkLoad(b *testing.B) {
-	dir := benchEnv(b, "ONNXGO_MODELS")
+	dir := benchEnv(b, "ONNXNLP_MODELS")
 	for i := 0; i < b.N; i++ {
 		if _, err := Load(filepath.Join(dir, "onnx", "encoder.onnx")); err != nil {
 			b.Fatal(err)
@@ -198,7 +198,7 @@ func BenchmarkLoad(b *testing.B) {
 }
 
 func BenchmarkGLiRELExtract(b *testing.B) {
-	g, err := LoadGLiREL(benchEnv(b, "ONNXGO_GLIREL"))
+	g, err := LoadGLiREL(benchEnv(b, "ONNXNLP_GLIREL"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -214,9 +214,9 @@ func BenchmarkGLiRELExtract(b *testing.B) {
 }
 
 func BenchmarkBERTopicStages(b *testing.B) {
-	dir := os.Getenv("ONNXGO_BERTOPIC_REF")
+	dir := os.Getenv("ONNXNLP_BERTOPIC_REF")
 	if dir == "" {
-		b.Skip("ONNXGO_BERTOPIC_REF not set")
+		b.Skip("ONNXNLP_BERTOPIC_REF not set")
 	}
 	flat, shape := readNpy(b, filepath.Join(dir, "emb.npy"))
 	data := make([][]float32, shape[0])

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"onnxgo"
+	onnxnlp "github.com/sistemica/onnx-nlp-go"
 )
 
 var exit = os.Exit
@@ -29,7 +29,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: gliner -model DIR -labels a,b,c [-threshold 0.5] TEXT")
 		return 2
 	}
-	g, err := onnxgo.LoadGLiNER(*model)
+	g, err := onnxnlp.LoadGLiNER(*model)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	"errors"
@@ -182,7 +182,7 @@ func (d *cudaDevice) init() error {
 		return errors.New("cuda: no devices")
 	}
 	want := int32(-1)
-	if v, err := strconv.Atoi(os.Getenv("ONNXGO_GPU_DEVICE")); err == nil {
+	if v, err := strconv.Atoi(os.Getenv("ONNXNLP_GPU_DEVICE")); err == nil {
 		want = int32(v)
 	}
 	best, bestFree := int32(-1), uint64(0)

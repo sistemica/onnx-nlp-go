@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"math"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"onnxgo/internal/fixture"
+	"github.com/sistemica/onnx-nlp-go/internal/fixture"
 )
 
 func meanRows(ids ...int) []float32 {

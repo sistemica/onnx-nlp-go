@@ -2,8 +2,8 @@
 *.prof
 *.out
 *.exe
-/onnxgo
-/gliner
+__pycache__/
 .cx-index.db
+/gliner
 /glirel
 /bertopic

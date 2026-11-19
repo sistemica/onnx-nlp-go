@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import "golang.org/x/sys/cpu"
 

@@ -1,6 +1,6 @@
 //go:build amd64
 
-package onnxgo
+package onnxnlp
 
 // The AVX2 kernels below process the leading multiple of eight elements and require useAVX2.
 

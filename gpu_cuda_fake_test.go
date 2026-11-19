@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	"math"
@@ -218,7 +218,7 @@ func TestFakeDriverDeviceSelection(t *testing.T) {
 	}
 	dev.Release()
 
-	t.Setenv("ONNXGO_GPU_DEVICE", "2")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "2")
 	drv = newFakeDriver(100, 900, 500)
 	dev, err = newCUDADevice(drv.api())
 	if err != nil || dev.ordinal != 2 {
@@ -226,7 +226,7 @@ func TestFakeDriverDeviceSelection(t *testing.T) {
 	}
 	dev.Release()
 
-	t.Setenv("ONNXGO_GPU_DEVICE", "5")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "5")
 	if _, err := newCUDADevice(newFakeDriver(100).api()); err == nil || !strings.Contains(err.Error(), "no usable device") {
 		t.Fatalf("out-of-range device: %v", err)
 	}

@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 func openRealVulkan(t testing.TB) *vulkanDevice {
 	t.Helper()
-	t.Setenv("ONNXGO_GPU_BACKEND", "vulkan")
+	t.Setenv("ONNXNLP_GPU_BACKEND", "vulkan")
 	dev, err := openVulkan()
 	if err != nil {
 		t.Skipf("no Vulkan device available: %v", err)

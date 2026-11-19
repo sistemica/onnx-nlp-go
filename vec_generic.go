@@ -1,6 +1,6 @@
 //go:build !amd64
 
-package onnxgo
+package onnxnlp
 
 func expSumAVX2(dst, src *float32, n int, shift float32) float32 {
 	panic("expSumAVX2 is only available on amd64")

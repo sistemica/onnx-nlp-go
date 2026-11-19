@@ -1,6 +1,6 @@
 //go:build amd64
 
-package onnxgo
+package onnxnlp
 
 import (
 	"math"
@@ -25,14 +25,14 @@ func TestGemmAVX2Kernel(t *testing.T) {
 func TestGemmWithEachKernel(t *testing.T) {
 	defer selectKernel()
 	for _, mode := range []string{"", "off", "on"} {
-		t.Setenv("ONNXGO_AVX512", mode)
+		t.Setenv("ONNXNLP_AVX512", mode)
 		selectKernel()
 		want := 6
 		if mode == "on" && useAVX512 && useAVX2 {
 			want = 12
 		}
 		if tileRows != want {
-			t.Fatalf("ONNXGO_AVX512=%q: tile height %d, want %d", mode, tileRows, want)
+			t.Fatalf("ONNXNLP_AVX512=%q: tile height %d, want %d", mode, tileRows, want)
 		}
 		if rowBlock%tileRows != 0 {
 			t.Fatalf("row block %d is not a multiple of the tile height %d", rowBlock, tileRows)
@@ -46,7 +46,7 @@ func TestAVX512KernelOnWideTiles(t *testing.T) {
 		t.Skip("CPU has no AVX-512")
 	}
 	defer selectKernel()
-	t.Setenv("ONNXGO_AVX512", "on")
+	t.Setenv("ONNXNLP_AVX512", "on")
 	selectKernel()
 	rng := rand.New(rand.NewPCG(121, 122))
 	for _, sz := range [][3]int{{12, 7, 16}, {13, 33, 17}, {24, 64, 32}, {25, 5, 48}, {1, 9, 16}, {11, 100, 15}} {

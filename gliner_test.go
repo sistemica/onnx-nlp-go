@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/binary"
@@ -100,9 +100,9 @@ func compareTensors(t *testing.T, name string, got, want *Tensor, tol float64) {
 }
 
 func TestAgainstReference(t *testing.T) {
-	models, ref := os.Getenv("ONNXGO_MODELS"), os.Getenv("ONNXGO_REF")
+	models, ref := os.Getenv("ONNXNLP_MODELS"), os.Getenv("ONNXNLP_REF")
 	if models == "" || ref == "" {
-		t.Skip("ONNXGO_MODELS and ONNXGO_REF not set")
+		t.Skip("ONNXNLP_MODELS and ONNXNLP_REF not set")
 	}
 	cases, _ := filepath.Glob(filepath.Join(ref, "*", "manifest.json"))
 	sessions := map[string]*Session{}

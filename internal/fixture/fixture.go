@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"onnxgo/internal/pb"
+	"github.com/sistemica/onnx-nlp-go/internal/pb"
 )
 
 const Hidden = 4

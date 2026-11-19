@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"fmt"
@@ -10,9 +10,9 @@ import (
 
 func bertopicRef(t *testing.T) string {
 	t.Helper()
-	dir := os.Getenv("ONNXGO_BERTOPIC_REF")
+	dir := os.Getenv("ONNXNLP_BERTOPIC_REF")
 	if dir == "" {
-		t.Skip("ONNXGO_BERTOPIC_REF not set")
+		t.Skip("ONNXNLP_BERTOPIC_REF not set")
 	}
 	return dir
 }

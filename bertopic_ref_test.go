@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/json"
@@ -149,9 +149,9 @@ func matchTopics(got *TopicModel, wantTopics []int, wantWords map[string][][]any
 
 func TestBERTopicEndToEndAgainstReference(t *testing.T) {
 	dir := bertopicRef(t)
-	modelDir := os.Getenv("ONNXGO_MINILM")
+	modelDir := os.Getenv("ONNXNLP_MINILM")
 	if modelDir == "" {
-		t.Skip("ONNXGO_MINILM not set")
+		t.Skip("ONNXNLP_MINILM not set")
 	}
 	docs, rec := loadBertopicRecord(t, dir)
 	embedder, err := LoadEmbedder(modelDir)

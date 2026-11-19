@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	_ "embed"
@@ -454,7 +454,7 @@ func (d *vulkanDevice) Name() string { return d.name }
 
 func (d *vulkanDevice) init() error {
 	api := d.api
-	app := vkApplicationInfo{sType: vkStructApplicationInfo, pApplicationName: cString("onnxgo"), pEngineName: cString("onnxgo"), apiVersion: vkAPIVersion10}
+	app := vkApplicationInfo{sType: vkStructApplicationInfo, pApplicationName: cString("onnx-nlp-go"), pEngineName: cString("onnx-nlp-go"), apiVersion: vkAPIVersion10}
 	info := vkInstanceCreateInfo{sType: vkStructInstanceCreateInfo, pApplicationInfo: &app}
 	if code := api.createInstance(unsafe.Pointer(&info), 0, &d.instance); code != 0 {
 		return vkError("vkCreateInstance", code)
@@ -492,13 +492,13 @@ func (d *vulkanDevice) pickPhysicalDevice() (uintptr, string, error) {
 		return 0, "", vkError("vkEnumeratePhysicalDevices", code)
 	}
 	want := -1
-	if v, err := strconv.Atoi(os.Getenv("ONNXGO_GPU_DEVICE")); err == nil {
+	if v, err := strconv.Atoi(os.Getenv("ONNXNLP_GPU_DEVICE")); err == nil {
 		want = v
 	}
-	allowCPU := os.Getenv("ONNXGO_VULKAN_ALLOW_CPU") == "1"
+	allowCPU := os.Getenv("ONNXNLP_VULKAN_ALLOW_CPU") == "1"
 	// Integrated GPUs share memory with the CPU and are not faster than its SIMD kernel,
 	// so they are only used when asked for.
-	explicit := os.Getenv("ONNXGO_GPU_BACKEND") == "vulkan"
+	explicit := os.Getenv("ONNXNLP_GPU_BACKEND") == "vulkan"
 	best, bestRank, bestName := uintptr(0), -1, ""
 	for i, pd := range devices[:count] {
 		var props [1024]byte

@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"onnxgo/internal/fixture"
+	"github.com/sistemica/onnx-nlp-go/internal/fixture"
 )
 
 func glinerDir(t *testing.T) string {

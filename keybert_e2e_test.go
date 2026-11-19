@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/json"
@@ -11,9 +11,9 @@ import (
 
 func minilmEnv(t *testing.T) (model, ref string) {
 	t.Helper()
-	model, ref = os.Getenv("ONNXGO_MINILM"), os.Getenv("ONNXGO_KBREF")
+	model, ref = os.Getenv("ONNXNLP_MINILM"), os.Getenv("ONNXNLP_KBREF")
 	if model == "" || ref == "" {
-		t.Skip("ONNXGO_MINILM and ONNXGO_KBREF not set")
+		t.Skip("ONNXNLP_MINILM and ONNXNLP_KBREF not set")
 	}
 	return model, ref
 }

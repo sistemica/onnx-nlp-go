@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/binary"
@@ -331,35 +331,35 @@ func TestFakeVulkanDeviceSelection(t *testing.T) {
 		defer dev.Release()
 		return dev.Name(), nil
 	}
-	clear := map[string]string{"ONNXGO_GPU_DEVICE": "", "ONNXGO_GPU_BACKEND": "", "ONNXGO_VULKAN_ALLOW_CPU": ""}
+	clear := map[string]string{"ONNXNLP_GPU_DEVICE": "", "ONNXNLP_GPU_BACKEND": "", "ONNXNLP_VULKAN_ALLOW_CPU": ""}
 	if name, err := pick(clear); err != nil || name != "Discrete" {
 		t.Fatalf("default: %q %v", name, err)
 	}
-	if name, err := pick(map[string]string{"ONNXGO_GPU_DEVICE": "1"}); err != nil || name != "Integrated" {
+	if name, err := pick(map[string]string{"ONNXNLP_GPU_DEVICE": "1"}); err != nil || name != "Integrated" {
 		t.Fatalf("explicit index: %q %v", name, err)
 	}
-	if name, err := pick(map[string]string{"ONNXGO_GPU_DEVICE": "0"}); err != nil || name != "Software" {
+	if name, err := pick(map[string]string{"ONNXNLP_GPU_DEVICE": "0"}); err != nil || name != "Software" {
 		t.Fatalf("explicit index may select any device: %q %v", name, err)
 	}
-	if _, err := pick(map[string]string{"ONNXGO_GPU_DEVICE": "9"}); err == nil {
+	if _, err := pick(map[string]string{"ONNXNLP_GPU_DEVICE": "9"}); err == nil {
 		t.Fatal("an out-of-range index must fail")
 	}
 	devices = devices[:2]
 	if _, err := pick(clear); err == nil || !strings.Contains(err.Error(), "no usable device") {
 		t.Fatalf("software and integrated devices must be skipped by default: %v", err)
 	}
-	if name, err := pick(map[string]string{"ONNXGO_GPU_BACKEND": "vulkan"}); err != nil || name != "Integrated" {
+	if name, err := pick(map[string]string{"ONNXNLP_GPU_BACKEND": "vulkan"}); err != nil || name != "Integrated" {
 		t.Fatalf("integrated devices are allowed when the backend is requested: %q %v", name, err)
 	}
 	devices = devices[:1]
-	if name, err := pick(map[string]string{"ONNXGO_GPU_BACKEND": "", "ONNXGO_VULKAN_ALLOW_CPU": "1"}); err != nil || name != "Software" {
+	if name, err := pick(map[string]string{"ONNXNLP_GPU_BACKEND": "", "ONNXNLP_VULKAN_ALLOW_CPU": "1"}); err != nil || name != "Software" {
 		t.Fatalf("software device on request: %q %v", name, err)
 	}
 }
 
 func TestFakeVulkanInitializationFailures(t *testing.T) {
 	isolateGPUEnv(t)
-	t.Setenv("ONNXGO_GPU_DEVICE", "")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "")
 	for _, name := range []string{
 		"vkCreateInstance", "vkEnumeratePhysicalDevices", "vkCreateDevice", "vkCreateShaderModule", "vkCreateDescriptorSetLayout",
 		"vkCreatePipelineLayout", "vkCreateComputePipelines", "vkCreateDescriptorPool", "vkAllocateDescriptorSets",
@@ -591,7 +591,7 @@ func TestFakeVulkanEnumerationFailsOnSecondCall(t *testing.T) {
 
 func TestFakeVulkanDeviceNameWithoutTerminator(t *testing.T) {
 	isolateGPUEnv(t)
-	t.Setenv("ONNXGO_GPU_DEVICE", "")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "")
 	long := strings.Repeat("x", 300)
 	dev, err := newVulkanDevice(newFakeVulkan(gpuDevice(long, vkDeviceTypeDiscrete)).api())
 	if err != nil {

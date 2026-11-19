@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"os"
@@ -11,7 +11,7 @@ const (
 )
 
 // The micro-kernel and its height are chosen once. AVX2 takes six rows at a time. The AVX-512
-// kernel takes twelve and is opt-in (ONNXGO_AVX512=on): it was slower on Zen 4, where 512-bit
+// kernel takes twelve and is opt-in (ONNXNLP_AVX512=on): it was slower on Zen 4, where 512-bit
 // operations run as two halves, and within a few percent either way on Zen 5.
 var (
 	tileRows   int
@@ -22,7 +22,7 @@ var (
 func init() { selectKernel() }
 
 func selectKernel() {
-	if useAVX512 && useAVX2 && os.Getenv("ONNXGO_AVX512") == "on" {
+	if useAVX512 && useAVX2 && os.Getenv("ONNXNLP_AVX512") == "on" {
 		tileRows, tileKernel = 12, kernel12x16
 	} else {
 		tileRows, tileKernel = 6, kernel6x16

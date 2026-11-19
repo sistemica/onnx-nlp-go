@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/binary"
@@ -45,9 +45,9 @@ type glirelRef struct {
 
 func glirelEnv(t testing.TB) (model, ref string) {
 	t.Helper()
-	model, ref = os.Getenv("ONNXGO_GLIREL"), os.Getenv("ONNXGO_GLIREL_REF")
+	model, ref = os.Getenv("ONNXNLP_GLIREL"), os.Getenv("ONNXNLP_GLIREL_REF")
 	if model == "" || ref == "" {
-		t.Skip("ONNXGO_GLIREL and ONNXGO_GLIREL_REF not set")
+		t.Skip("ONNXNLP_GLIREL and ONNXNLP_GLIREL_REF not set")
 	}
 	return model, ref
 }

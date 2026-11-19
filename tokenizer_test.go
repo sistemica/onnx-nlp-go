@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"encoding/json"
@@ -9,9 +9,9 @@ import (
 )
 
 func TestTokenizerAgainstReference(t *testing.T) {
-	models, gold := os.Getenv("ONNXGO_MODELS"), os.Getenv("ONNXGO_TOKGOLD")
+	models, gold := os.Getenv("ONNXNLP_MODELS"), os.Getenv("ONNXNLP_TOKGOLD")
 	if models == "" || gold == "" {
-		t.Skip("ONNXGO_MODELS and ONNXGO_TOKGOLD not set")
+		t.Skip("ONNXNLP_MODELS and ONNXNLP_TOKGOLD not set")
 	}
 	tok, err := LoadTokenizer(filepath.Join(models, "tokenizer.json"), nil)
 	if err != nil {

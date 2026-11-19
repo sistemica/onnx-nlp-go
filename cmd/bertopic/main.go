@@ -8,12 +8,12 @@ import (
 	"os"
 	"strings"
 
-	"onnxgo"
+	onnxnlp "github.com/sistemica/onnx-nlp-go"
 )
 
 var (
 	exit         = os.Exit
-	loadEmbedder = func(dir string) (onnxgo.TextEmbedder, error) { return onnxgo.LoadEmbedder(dir) }
+	loadEmbedder = func(dir string) (onnxnlp.TextEmbedder, error) { return onnxnlp.LoadEmbedder(dir) }
 )
 
 func main() {
@@ -70,7 +70,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	topics := onnxgo.NewBERTopic(embedder)
+	topics := onnxnlp.NewBERTopic(embedder)
 	topics.MinTopicSize, topics.TopNWords, topics.RemoveStopWords, topics.UMAP.Seed = *minSize, *topWords, *stopWords, *seed
 	result, err := topics.Fit(docs)
 	if err != nil {
@@ -99,7 +99,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func assign(model *onnxgo.TopicModel, path string, stdout, stderr io.Writer) int {
+func assign(model *onnxnlp.TopicModel, path string, stdout, stderr io.Writer) int {
 	f, err := os.Open(path)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

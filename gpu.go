@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"os"
@@ -40,7 +40,7 @@ var accel struct {
 }
 
 func gpuDisabledByEnv() bool {
-	switch os.Getenv("ONNXGO_GPU") {
+	switch os.Getenv("ONNXNLP_GPU") {
 	case "off", "0", "false", "none":
 		return true
 	}
@@ -53,11 +53,11 @@ func activeDevice() (gemmDevice, int) {
 	if !accel.probed {
 		accel.probed = true
 		accel.minFlops = defaultGPUMinFlops
-		if v, err := strconv.Atoi(os.Getenv("ONNXGO_GPU_MIN_FLOPS")); err == nil {
+		if v, err := strconv.Atoi(os.Getenv("ONNXNLP_GPU_MIN_FLOPS")); err == nil {
 			accel.minFlops = v
 		}
 		if !gpuDisabledByEnv() {
-			accel.dev = openFirstBackend(os.Getenv("ONNXGO_GPU_BACKEND"))
+			accel.dev = openFirstBackend(os.Getenv("ONNXNLP_GPU_BACKEND"))
 		}
 	}
 	return accel.dev, accel.minFlops

@@ -1,6 +1,6 @@
 // Code generated from scikit-learn 1.9.1 ENGLISH_STOP_WORDS; DO NOT EDIT.
 
-package onnxgo
+package onnxnlp
 
 var englishStopWords = map[string]struct{}{
 	"a":            {},

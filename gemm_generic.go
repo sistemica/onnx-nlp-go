@@ -1,6 +1,6 @@
 //go:build !amd64
 
-package onnxgo
+package onnxnlp
 
 const (
 	useAVX2   = false

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"onnxgo"
+	onnxnlp "github.com/sistemica/onnx-nlp-go"
 )
 
 var exit = os.Exit
@@ -17,8 +17,8 @@ func main() {
 	exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func parseSpans(s string) ([]onnxgo.Span, error) {
-	var spans []onnxgo.Span
+func parseSpans(s string) ([]onnxnlp.Span, error) {
+	var spans []onnxnlp.Span
 	for _, part := range strings.Split(s, ",") {
 		from, to, ok := strings.Cut(strings.TrimSpace(part), ":")
 		start, err1 := strconv.Atoi(from)
@@ -26,7 +26,7 @@ func parseSpans(s string) ([]onnxgo.Span, error) {
 		if !ok || err1 != nil || err2 != nil {
 			return nil, fmt.Errorf("entity %q is not START:END", part)
 		}
-		spans = append(spans, onnxgo.Span{Start: start, End: end})
+		spans = append(spans, onnxnlp.Span{Start: start, End: end})
 	}
 	return spans, nil
 }
@@ -51,7 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	g, err := onnxgo.LoadGLiREL(*model)
+	g, err := onnxnlp.LoadGLiREL(*model)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

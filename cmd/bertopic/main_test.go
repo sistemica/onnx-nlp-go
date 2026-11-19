@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"onnxgo"
+	onnxnlp "github.com/sistemica/onnx-nlp-go"
 )
 
 type stubEmbedder struct{}
@@ -33,7 +33,7 @@ func (stubEmbedder) Embed(texts []string) ([][]float32, error) {
 func withStub(t *testing.T) {
 	t.Helper()
 	saved := loadEmbedder
-	loadEmbedder = func(string) (onnxgo.TextEmbedder, error) { return stubEmbedder{}, nil }
+	loadEmbedder = func(string) (onnxnlp.TextEmbedder, error) { return stubEmbedder{}, nil }
 	t.Cleanup(func() { loadEmbedder = saved })
 }
 
@@ -97,7 +97,7 @@ func TestRunAssignsNewDocumentsToTheTopicsFound(t *testing.T) {
 	if code := run([]string{"-model", "unused", "-assign", empty}, strings.NewReader(corpus()), &out, &errOut); code != 0 {
 		t.Errorf("an empty file assigns nothing: exit %d", code)
 	}
-	loadEmbedder = func(string) (onnxgo.TextEmbedder, error) { return &failsOnSecondCall{}, nil }
+	loadEmbedder = func(string) (onnxnlp.TextEmbedder, error) { return &failsOnSecondCall{}, nil }
 	if code := run([]string{"-model", "unused", "-assign", path}, strings.NewReader(corpus()), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "embedding failed") {
 		t.Errorf("an embedder failing on the new documents: exit %d, stderr %q", code, errOut.String())
 	}
@@ -155,7 +155,7 @@ func TestRunUsageAndErrors(t *testing.T) {
 	if code := run([]string{"-model", "x"}, strings.NewReader("only one document\n"), &out, &errOut); code != 1 {
 		t.Errorf("too few documents: exit %d", code)
 	}
-	loadEmbedder = func(string) (onnxgo.TextEmbedder, error) { return nil, errors.New("no such model") }
+	loadEmbedder = func(string) (onnxnlp.TextEmbedder, error) { return nil, errors.New("no such model") }
 	if code := run([]string{"-model", "x"}, strings.NewReader(corpus()), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "no such model") {
 		t.Errorf("model failure: exit %d, stderr %q", code, errOut.String())
 	}

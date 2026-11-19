@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 // renumberBySize gives the clusters the IDs 0, 1, ... in order of decreasing size. Noise stays -1.
 func renumberBySize(labels []int) []int {

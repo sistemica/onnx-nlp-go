@@ -1,6 +1,6 @@
 //go:build linux && (amd64 || arm64)
 
-package onnxgo
+package onnxnlp
 
 import (
 	"fmt"
@@ -120,7 +120,7 @@ func TestDlopenAndRegisterFunc(t *testing.T) {
 		t.Fatalf("register getpid: %v", err)
 	}
 	var missing func() int32
-	if err := registerFunc(&missing, lib, "onnxgo_no_such_symbol"); err == nil {
+	if err := registerFunc(&missing, lib, "onnxnlp_no_such_symbol"); err == nil {
 		t.Fatal("a missing symbol must fail")
 	}
 }
@@ -139,11 +139,11 @@ func TestLoadCUDAReportsMissingLibraries(t *testing.T) {
 
 func TestCUDAOpenReleaseAndSelection(t *testing.T) {
 	requireCUDA(t)
-	t.Setenv("ONNXGO_GPU_DEVICE", "9999")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "9999")
 	if _, err := openCUDA(); err == nil {
 		t.Fatal("a nonexistent device index must fail")
 	}
-	t.Setenv("ONNXGO_GPU_DEVICE", "0")
+	t.Setenv("ONNXNLP_GPU_DEVICE", "0")
 	dev, err := openCUDA()
 	if err != nil {
 		t.Skipf("device 0 is not usable here: %v", err)

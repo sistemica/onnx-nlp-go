@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"errors"
@@ -28,7 +28,7 @@ func (f *fakeDevice) Release() { f.released++ }
 // isolateGPUEnv hides the ambient GPU settings from tests that use fake devices.
 func isolateGPUEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"ONNXGO_GPU", "ONNXGO_GPU_BACKEND", "ONNXGO_GPU_DEVICE", "ONNXGO_GPU_MIN_FLOPS", "ONNXGO_VULKAN_ALLOW_CPU"} {
+	for _, name := range []string{"ONNXNLP_GPU", "ONNXNLP_GPU_BACKEND", "ONNXNLP_GPU_DEVICE", "ONNXNLP_GPU_MIN_FLOPS", "ONNXNLP_VULKAN_ALLOW_CPU"} {
 		t.Setenv(name, "")
 	}
 }
@@ -170,37 +170,37 @@ func TestDeviceProbing(t *testing.T) {
 	}
 
 	reset()
-	t.Setenv("ONNXGO_GPU", "")
-	t.Setenv("ONNXGO_GPU_BACKEND", "")
-	t.Setenv("ONNXGO_GPU_MIN_FLOPS", "77")
+	t.Setenv("ONNXNLP_GPU", "")
+	t.Setenv("ONNXNLP_GPU_BACKEND", "")
+	t.Setenv("ONNXNLP_GPU_MIN_FLOPS", "77")
 	if d, min := activeDevice(); d != dev || min != 77 {
 		t.Fatalf("probe should skip the broken backend and take the first working one: %v %d", d, min)
 	}
 
 	reset()
-	t.Setenv("ONNXGO_GPU_BACKEND", "second")
+	t.Setenv("ONNXNLP_GPU_BACKEND", "second")
 	if d, _ := activeDevice(); d != other {
 		t.Fatalf("backend selection ignored: %v", d)
 	}
 
 	reset()
-	t.Setenv("ONNXGO_GPU_BACKEND", "missing")
+	t.Setenv("ONNXNLP_GPU_BACKEND", "missing")
 	if d, _ := activeDevice(); d != nil {
 		t.Fatalf("unknown backend must leave the CPU path: %v", d)
 	}
 
-	t.Setenv("ONNXGO_GPU_BACKEND", "")
+	t.Setenv("ONNXNLP_GPU_BACKEND", "")
 	for _, off := range []string{"off", "0", "false", "none"} {
 		reset()
-		t.Setenv("ONNXGO_GPU", off)
+		t.Setenv("ONNXNLP_GPU", off)
 		if d, min := activeDevice(); d != nil || min != 77 {
-			t.Fatalf("ONNXGO_GPU=%s: %v %d", off, d, min)
+			t.Fatalf("ONNXNLP_GPU=%s: %v %d", off, d, min)
 		}
 	}
 
 	reset()
-	t.Setenv("ONNXGO_GPU", "")
-	t.Setenv("ONNXGO_GPU_MIN_FLOPS", "junk")
+	t.Setenv("ONNXNLP_GPU", "")
+	t.Setenv("ONNXNLP_GPU_MIN_FLOPS", "junk")
 	backends = backends[:1]
 	if d, min := activeDevice(); d != nil || min != defaultGPUMinFlops {
 		t.Fatalf("failing probe: %v %d", d, min)

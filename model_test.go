@@ -1,4 +1,4 @@
-package onnxgo
+package onnxnlp
 
 import (
 	"math"
@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"onnxgo/internal/pb"
+	"github.com/sistemica/onnx-nlp-go/internal/pb"
 )
 
 func TestVarintAndFields(t *testing.T) {

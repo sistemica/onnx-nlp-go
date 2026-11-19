@@ -3,8 +3,8 @@
 usage: reference.py OUTDIR NDOCS
 
 Needs bertopic, umap-learn, hdbscan, sentence-transformers, scikit-learn and scipy, and downloads
-the 20 newsgroups corpus and all-MiniLM-L6-v2. Point ONNXGO_BERTOPIC_REF at OUTDIR to run the
-model-backed tests (and ONNXGO_MINILM at the MiniLM ONNX export for the end-to-end one).
+the 20 newsgroups corpus and all-MiniLM-L6-v2. Point ONNXNLP_BERTOPIC_REF at OUTDIR to run the
+model-backed tests (and ONNXNLP_MINILM at the MiniLM ONNX export for the end-to-end one).
 """
 import json
 import sys
