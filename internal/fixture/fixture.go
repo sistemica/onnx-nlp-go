@@ -122,3 +122,40 @@ func Must(err error) {
 		panic(fmt.Sprint("fixture: ", err))
 	}
 }
+
+// GLiRELVocab lists the Unigram pieces written by WriteGLiREL.
+var GLiRELVocab = []string{"[PAD]", "[CLS]", "[SEP]", "[UNK]", "▁alice", "▁met", "▁bob", "▁carol", "▁knows", "▁works", "▁.", "▁", "▁for"}
+
+// WriteGLiREL writes a GLiREL-shaped export directory. Its head ignores the representations
+// and always returns scores, which must be [pairs][labels] for the call under test.
+func WriteGLiREL(dir string, scores [][]float32) error {
+	vocab := make([][2]any, len(GLiRELVocab))
+	for i, p := range GLiRELVocab {
+		vocab[i] = [2]any{p, -float64(i) / 10}
+	}
+	special := map[string]int{"[CLS]": 1, "[SEP]": 2, "[REL]": 20}
+	if err := writeJSON(dir, "tokenizer.json", map[string]any{
+		"added_tokens": []map[string]any{{"id": 2, "content": "[SEP]"}, {"id": 20, "content": "[REL]"}},
+		"model":        map[string]any{"type": "Unigram", "unk_id": 3, "vocab": vocab},
+	}); err != nil {
+		return err
+	}
+	if err := writeJSON(dir, "glirel_export.json", map[string]any{"architecture": "glirel", "special_tokens": special, "max_len": 512}); err != nil {
+		return err
+	}
+	if err := write(dir, "onnx/encoder.onnx", lookupModel(32, "hidden_states", []string{"input_ids", "attention_mask"})); err != nil {
+		return err
+	}
+	var flat []float32
+	for _, row := range scores {
+		flat = append(flat, row...)
+	}
+	cols := 0
+	if len(scores) > 0 {
+		cols = len(scores[0])
+	}
+	head := pb.Model(pb.Graph(
+		[][]byte{pb.Node("Constant", nil, []string{"scores"}, pb.AttrTensor("value", pb.TensorFloats("", []int64{int64(len(scores)), int64(cols)}, flat)))},
+		nil, []string{"prompt_rep", "word_rep", "span_idx", "head_ids", "tail_ids"}, []string{"scores"}))
+	return write(dir, "onnx/head.onnx", head)
+}

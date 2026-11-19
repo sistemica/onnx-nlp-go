@@ -6,11 +6,29 @@ A pure-Go (no cgo) ONNX inference engine with three ready-made pipelines:
 |---|---|---|
 | Entity extraction | `LoadGLiNER(dir).Extract(text, labels, threshold)` | GLiNER2.5 boundary export (`DanKau/gliner2.5-multi-v1-onnx`) |
 | Keyword extraction | `NewKeyBERT(LoadEmbedder(dir)).Extract(docs, opts)` | any sentence-transformers directory with `onnx/model.onnx`, mean pooling, WordPiece (default `all-MiniLM-L6-v2`) |
+| Relation extraction | `LoadGLiREL(dir).Extract(tokens, entities, labels, threshold, topK)` | GLiREL (`jackboyla/glirel-large-v0`), exported with `tools/glirel` |
 | Raw inference | `Load(path).Run(inputs)` | any ONNX model whose operators are implemented (see `ops_misc.go`) |
 
 CLI: `go run ./cmd/gliner -model DIR -labels person,company "text"`.
 
-GLiREL and BERTopic are not implemented.
+### GLiREL
+
+GLiREL scores relations between entities you have already found (for example with GLiNER or spaCy). Entities are half-open token ranges; relation labels are free text.
+
+```go
+g, _ := onnxgo.LoadGLiREL("glirel_export")
+rels, _ := g.Extract(tokens, []onnxgo.Span{{0, 2}, {7, 8}}, []string{"works for", "located in"}, 0.5, 0)
+```
+
+The model has no ONNX release, so build the export directory once (needs `torch`, `transformers`, `glirel`, `onnx`, about 6 GB of downloads):
+
+1. `python tools/glirel/reference.py ref.json` records PyTorch's scores for a few sentences.
+2. `EXPORT_ENCODER=1 python tools/glirel/export.py glirel_export ref.json` writes `onnx/encoder.onnx` (1.7 GB), `onnx/head.onnx`, `tokenizer.json` and `glirel_export.json`, and fails unless the head reproduces the PyTorch scores.
+3. `python tools/glirel/dump_stages.py ref.json DIR` writes per-stage reference data for the model-backed tests.
+
+`cmd/glirel` is a small command-line front end. Not implemented: the optional `refine_*`, `coref` and non-`dot` scorer variants, which this checkpoint does not use.
+
+BERTopic is not implemented.
 
 ## Speed
 

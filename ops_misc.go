@@ -339,6 +339,7 @@ func init() {
 		"If":                 opIf,
 		"IsNaN":              opIsNaN,
 		"LayerNormalization": opLayerNorm,
+		"LSTM":               opLSTM,
 		"Less":               compare(func(a, b float32) bool { return a < b }, func(a, b int64) bool { return a < b }),
 		"LessOrEqual":        compare(func(a, b float32) bool { return a <= b }, func(a, b int64) bool { return a <= b }),
 		"Log":                unary(viaF64(math.Log), nil),

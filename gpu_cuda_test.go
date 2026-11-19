@@ -48,7 +48,14 @@ func TestCUDAGemmMatchesReference(t *testing.T) {
 }
 
 func TestCUDAOffloadThroughMatMul(t *testing.T) {
-	dev := requireCUDA(t)
+	requireCUDA(t)
+	opened, err := openCUDA()
+	if err != nil {
+		t.Skipf("cannot open a second CUDA device: %v", err)
+	}
+	dev := opened.(*cudaDevice)
+	t.Cleanup(dev.Release)
+	installDevice(t, dev, 1)
 	rng := rand.New(rand.NewPCG(13, 14))
 	m, k, n := 64, 512, 512
 	x := NewFloat([]int{2, m, k}, randomSlice(rng, 2*m*k))

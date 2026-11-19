@@ -176,6 +176,33 @@ func TestFakeDriverCachesStaticWeightsAndGrowsScratch(t *testing.T) {
 	}
 }
 
+func TestFakeDriverCacheBudgetLeavesRoomForScratch(t *testing.T) {
+	isolateGPUEnv(t)
+	drv := newFakeDriver(400)
+	dev, err := newCUDADevice(drv.api())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rng := rand.New(rand.NewPCG(133, 134))
+	for i := 0; i < 3; i++ {
+		job, want := fakeJob(rng, 3, 5, 6, true)
+		for round := 0; round < 2; round++ {
+			clear(job.out)
+			if err := dev.Gemm(job); err != nil {
+				t.Fatal(err)
+			}
+			closeSlices(t, job.out, want)
+		}
+	}
+	if len(dev.weights) != 2 || dev.cacheUsed != 240 {
+		t.Fatalf("a 240-byte budget holds two 120-byte weight matrices: %d cached, %d bytes used", len(dev.weights), dev.cacheUsed)
+	}
+	dev.Release()
+	if dev.cacheUsed != 0 {
+		t.Fatal("releasing the device must reset the cache accounting")
+	}
+}
+
 func TestFakeDriverDeviceSelection(t *testing.T) {
 	isolateGPUEnv(t)
 	drv := newFakeDriver(100, 900, 500)

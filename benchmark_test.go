@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -190,6 +191,22 @@ func BenchmarkLoad(b *testing.B) {
 	dir := benchEnv(b, "ONNXGO_MODELS")
 	for i := 0; i < b.N; i++ {
 		if _, err := Load(filepath.Join(dir, "onnx", "encoder.onnx")); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGLiRELExtract(b *testing.B) {
+	g, err := LoadGLiREL(benchEnv(b, "ONNXGO_GLIREL"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	tokens := strings.Fields("Tim Cook , the chief executive of Apple , visited Berlin and met Angela Merkel .")
+	entities := []Span{{0, 2}, {7, 8}, {10, 11}, {13, 15}}
+	labels := []string{"country of origin", "licensed to broadcast to", "father", "followed by", "located in", "works for", "founded"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := g.Extract(tokens, entities, labels, 0.5, 0); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -121,7 +121,9 @@ type cudaDevice struct {
 
 	handle  uintptr
 	weights map[weightKey]deviceBuffer
-	scratch [3]deviceBuffer
+	// cacheBudget bounds the memory taken by cached weights so that scratch buffers can always be allocated.
+	cacheBudget, cacheUsed uint64
+	scratch                [3]deviceBuffer
 }
 
 func init() {
@@ -210,6 +212,7 @@ func (d *cudaDevice) init() error {
 	}
 	api.cuCtxSetCurrent(bestCtx)
 	d.ordinal = best
+	d.cacheBudget = bestFree / 10 * 6
 	nameBuf := make([]byte, 128)
 	api.cuDeviceGetName(unsafe.Pointer(&nameBuf[0]), int32(len(nameBuf)), best)
 	for i, b := range nameBuf {
@@ -233,7 +236,7 @@ func (d *cudaDevice) free() {
 			d.api.cuMemFree(b.ptr)
 		}
 	}
-	d.weights, d.scratch = map[weightKey]deviceBuffer{}, [3]deviceBuffer{}
+	d.weights, d.scratch, d.cacheUsed = map[weightKey]deviceBuffer{}, [3]deviceBuffer{}, 0
 	d.api.cublasDestroy(d.handle)
 	d.api.cuDevicePrimaryCtxRel(d.ordinal)
 }
@@ -275,12 +278,13 @@ func (d *cudaDevice) upload(b []float32, j gemmJob) (uint64, error) {
 			return buf.ptr, nil
 		}
 		var ptr uint64
-		if d.api.cuMemAlloc(&ptr, bytes) == 0 {
+		if d.cacheUsed+bytes <= d.cacheBudget && d.api.cuMemAlloc(&ptr, bytes) == 0 {
 			if code := d.api.cuMemcpyHtoD(ptr, unsafe.Pointer(&b[0]), bytes); code != 0 {
 				d.api.cuMemFree(ptr)
 				return 0, cudaError("cuMemcpyHtoD", code)
 			}
 			d.weights[key] = deviceBuffer{ptr, bytes}
+			d.cacheUsed += bytes
 			return ptr, nil
 		}
 	}

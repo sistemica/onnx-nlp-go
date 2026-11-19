@@ -47,6 +47,18 @@ func TestWritersReportFailures(t *testing.T) {
 	}
 }
 
+func TestGLiRELWriterReportsFailures(t *testing.T) {
+	for _, blocked := range []string{"tokenizer.json", "glirel_export.json", "onnx/encoder.onnx", "onnx/head.onnx"} {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, blocked), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteGLiREL(dir, [][]float32{{1}}); err == nil {
+			t.Errorf("blocking %s did not fail WriteGLiREL", blocked)
+		}
+	}
+}
+
 func TestWritersReportUnusableDirectories(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "occupied")
