@@ -31,35 +31,167 @@ type mstEdge struct {
 	weight float64
 }
 
+// HDBSCANModel is a fitted clustering that can place new points.
+type HDBSCANModel struct {
+	Labels    []int
+	Strengths []float64
+
+	minSamples int
+	points     [][]float64
+	core       []float64
+	pointRow   []condensedRow
+	clusterRow map[int]condensedRow
+	labelOf    map[int]int
+	maxLambda  map[int]float64
+	root       int
+}
+
 // Fit returns a label and a membership strength in [0, 1] for every point.
 func (h HDBSCAN) Fit(points [][]float64) (labels []int, strengths []float64, err error) {
+	m, err := h.FitModel(points)
+	if err != nil {
+		return nil, nil, err
+	}
+	return m.Labels, m.Strengths, nil
+}
+
+// FitModel clusters the points and keeps what is needed to place new points later.
+func (h HDBSCAN) FitModel(points [][]float64) (*HDBSCANModel, error) {
 	if h.MinClusterSize < 2 {
-		return nil, nil, errors.New("hdbscan: MinClusterSize must be at least 2")
+		return nil, errors.New("hdbscan: MinClusterSize must be at least 2")
 	}
 	n := len(points)
 	for _, p := range points {
 		if len(p) != len(points[0]) {
-			return nil, nil, errors.New("hdbscan: points differ in dimension")
+			return nil, errors.New("hdbscan: points differ in dimension")
 		}
 	}
-	labels, strengths = make([]int, n), make([]float64, n)
+	m := &HDBSCANModel{Labels: make([]int, n), Strengths: make([]float64, n), points: points}
+	for i := range m.Labels {
+		m.Labels[i] = -1
+	}
+	m.minSamples = h.MinSamples
+	if m.minSamples <= 0 {
+		m.minSamples = h.MinClusterSize
+	}
+	if n < 2 {
+		return m, nil
+	}
+	k := max(1, min(n-1, m.minSamples))
+	edges := minimumSpanningTree(points, coreDistances(points, k))
+	m.cluster(singleLinkage(n, edges), h.MinClusterSize)
+	return m, nil
+}
+
+// cluster selects clusters from a single-linkage dendrogram and labels the points.
+func (m *HDBSCANModel) cluster(hierarchy []linkageRow, minClusterSize int) {
+	tree := condenseTree(hierarchy, minClusterSize)
+	selected := selectClusters(tree, computeStability(tree))
+	m.Labels, m.Strengths = assignClusters(tree, len(m.points), selected)
+	m.indexForPrediction(tree, selected)
+}
+
+// indexForPrediction collects what approximate prediction reads: the tree row of every point,
+// the cluster rows, the label of every cluster at or below a selected one, and each such
+// cluster's largest lambda.
+func (m *HDBSCANModel) indexForPrediction(tree []condensedRow, selected map[int]bool) {
+	n := len(m.points)
+	m.core = coreDistances(m.points, max(m.minSamples-1, 0))
+	m.pointRow = make([]condensedRow, n)
+	m.clusterRow = map[int]condensedRow{}
+	children := map[int][]int{}
+	death := map[int]float64{}
+	m.root = math.MaxInt
+	for _, r := range tree {
+		m.root = min(m.root, r.parent)
+		death[r.parent] = max(death[r.parent], r.lambda)
+		if r.child < n {
+			m.pointRow[r.child] = r
+		} else {
+			m.clusterRow[r.child] = r
+			children[r.parent] = append(children[r.parent], r.child)
+		}
+	}
+	m.labelOf, m.maxLambda = map[int]int{}, map[int]float64{}
+	for cluster, number := range clusterNumbers(selected) {
+		for queue := []int{cluster}; len(queue) > 0; queue = queue[1:] {
+			m.labelOf[queue[0]], m.maxLambda[queue[0]] = number, death[cluster]
+			queue = append(queue, children[queue[0]]...)
+		}
+	}
+}
+
+// Predict assigns new points to the existing clusters without changing them. Each point joins
+// the cluster of its nearest neighbour in mutual reachability, and its strength depends on the
+// density at which it would have joined.
+func (m *HDBSCANModel) Predict(points [][]float64) (labels []int, strengths []float64, err error) {
+	for _, p := range points {
+		if len(p) != len(m.points[0]) {
+			return nil, nil, errors.New("hdbscan: new points differ in dimension from the training points")
+		}
+	}
+	labels, strengths = make([]int, len(points)), make([]float64, len(points))
 	for i := range labels {
 		labels[i] = -1
 	}
-	if n < 2 {
+	if len(m.labelOf) == 0 {
 		return labels, strengths, nil
 	}
-	k := h.MinSamples
-	if k <= 0 {
-		k = h.MinClusterSize
-	}
-	k = max(1, min(n-1, k))
-	edges := minimumSpanningTree(points, coreDistances(points, k))
-	hierarchy := singleLinkage(n, edges)
-	tree := condenseTree(hierarchy, h.MinClusterSize)
-	selected := selectClusters(tree, computeStability(tree))
-	labels, strengths = assignClusters(tree, n, selected)
+	want := min(2*m.minSamples, len(m.points))
+	parallelFor(len(points), len(m.points)*(len(m.points[0])+want), func(lo, hi int) {
+		for i := lo; i < hi; i++ {
+			labels[i], strengths[i] = m.predictOne(points[i], want)
+		}
+	})
 	return labels, strengths, nil
+}
+
+func (m *HDBSCANModel) predictOne(p []float64, want int) (int, float64) {
+	neighbours := make([]int, 0, want)
+	distances := make([]float64, 0, want)
+	for j, q := range m.points {
+		d := squaredDistance(p, q)
+		if len(neighbours) == want && d >= distances[want-1] {
+			continue
+		}
+		at := min(len(neighbours), want-1)
+		if len(neighbours) < want {
+			neighbours, distances = append(neighbours, 0), append(distances, 0)
+		}
+		for at > 0 && distances[at-1] > d {
+			neighbours[at], distances[at] = neighbours[at-1], distances[at-1]
+			at--
+		}
+		neighbours[at], distances[at] = j, d
+	}
+	own := math.Sqrt(distances[min(m.minSamples, want-1)])
+	nearest, reach := -1, math.Inf(1)
+	for t, j := range neighbours {
+		if r := max(m.core[j], own, math.Sqrt(distances[t])); r < reach {
+			nearest, reach = j, r
+		}
+	}
+	lambda := math.MaxFloat64
+	if reach > 0 {
+		lambda = 1 / reach
+	}
+	row := m.pointRow[nearest]
+	cluster := row.parent
+	if row.lambda > lambda {
+		for cluster > m.root {
+			up, ok := m.clusterRow[cluster]
+			if !ok || !(up.lambda >= lambda) {
+				break
+			}
+			cluster = up.parent
+		}
+	}
+	label, ok := m.labelOf[cluster]
+	if !ok {
+		return -1, 0
+	}
+	top := m.maxLambda[cluster]
+	return label, min(top, lambda) / top
 }
 
 func squaredDistance(a, b []float64) float64 {
@@ -312,9 +444,8 @@ func selectClusters(tree []condensedRow, stability map[int]float64) map[int]bool
 	return selected
 }
 
-// assignClusters labels each point with the selected cluster that contains it, numbering the
-// clusters by increasing id, and derives the membership strength from the point's lambda.
-func assignClusters(tree []condensedRow, n int, selected map[int]bool) ([]int, []float64) {
+// clusterNumbers numbers the selected clusters 0, 1, ... by increasing id.
+func clusterNumbers(selected map[int]bool) map[int]int {
 	ids := make([]int, 0, len(selected))
 	for id := range selected {
 		ids = append(ids, id)
@@ -324,6 +455,13 @@ func assignClusters(tree []condensedRow, n int, selected map[int]bool) ([]int, [
 	for i, id := range ids {
 		number[id] = i
 	}
+	return number
+}
+
+// assignClusters labels each point with the selected cluster that contains it, numbering the
+// clusters by increasing id, and derives the membership strength from the point's lambda.
+func assignClusters(tree []condensedRow, n int, selected map[int]bool) ([]int, []float64) {
+	number := clusterNumbers(selected)
 	up := map[int]int{}
 	death := map[int]float64{}
 	for _, r := range tree {

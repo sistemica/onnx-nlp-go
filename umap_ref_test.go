@@ -205,3 +205,88 @@ func TestUMAPEndToEndAgainstReference(t *testing.T) {
 		t.Fatalf("clustered runs agree with umap-learn only at adjusted Rand %.3f", totalRand/float64(max(clustered, 1)))
 	}
 }
+
+func newPointGraph(t *testing.T, dir string) []graphEdge {
+	t.Helper()
+	train, fresh := readEmbeddings(t, dir), readFloat32Rows(t, filepath.Join(dir, "new_emb.npy"))
+	idx, dist := cosineSearch(fresh, train, 15, false)
+	return bipartiteGraph(idx, dist, 15)
+}
+
+func readFloat32Rows(t *testing.T, path string) [][]float32 {
+	t.Helper()
+	flat, shape := readNpy(t, path)
+	rows := make([][]float32, shape[0])
+	for i := range rows {
+		rows[i] = flat[i*shape[1] : (i+1)*shape[1]]
+	}
+	return rows
+}
+
+func TestUMAPTransformGraphAgainstReference(t *testing.T) {
+	dir := bertopicRef(t)
+	got := newPointGraph(t, dir)
+	pairs, shape := readNpyAny(t, filepath.Join(dir, "new_graph_edges.npy"))
+	weights, _ := readNpyAny(t, filepath.Join(dir, "new_graph_weights.npy"))
+	want := map[[2]int32]float32{}
+	for i := 0; i < shape[0]; i++ {
+		if weights[i] > 0 {
+			want[[2]int32{int32(pairs[2*i]), int32(pairs[2*i+1])}] = float32(weights[i])
+		}
+	}
+	shared, worst := 0, 0.0
+	for _, e := range got {
+		if w, ok := want[[2]int32{e.head, e.tail}]; ok {
+			shared++
+			worst = max(worst, math.Abs(float64(e.weight-w)))
+		}
+	}
+	t.Logf("edges: %d computed, %d reference, %d shared; largest weight difference %.3g", len(got), len(want), shared, worst)
+	if shared != len(want) || len(got) != len(want) || worst > 1e-4 {
+		t.Fatal("transform graph differs from umap-learn's")
+	}
+}
+
+func TestUMAPTransformInitAgainstReference(t *testing.T) {
+	dir := bertopicRef(t)
+	embedding := readPoints(t, filepath.Join(dir, "umap5.npy"))
+	want, shape := readNpy(t, filepath.Join(dir, "new_init.npy"))
+	got := averageNeighbourPositions(newPointGraph(t, dir), shape[0], embedding)
+	worst := 0.0
+	for i := range got {
+		for d := range got[i] {
+			worst = max(worst, math.Abs(got[i][d]-float64(want[i*shape[1]+d])))
+		}
+	}
+	t.Logf("%d starting positions, largest difference from umap-learn %.3g", len(got), worst)
+	if worst > 1e-4 {
+		t.Fatalf("starting positions differ by %g", worst)
+	}
+}
+
+func TestUMAPTransformAgainstReference(t *testing.T) {
+	dir := bertopicRef(t)
+	train := readEmbeddings(t, dir)
+	embedding := readPoints(t, filepath.Join(dir, "umap5.npy"))
+	fresh := readFloat32Rows(t, filepath.Join(dir, "new_emb.npy"))
+	want := readPoints(t, filepath.Join(dir, "new_umap.npy"))
+	a, b := findAB(1, 0)
+	model := &UMAPModel{params: DefaultUMAP(), data: train, embedding: embedding, a: a, b: b, neighbors: 15}
+	got, err := model.Transform(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var apart, step []float64
+	for i := range got {
+		apart = append(apart, math.Sqrt(squaredDistance(got[i], want[i])))
+	}
+	core := coreDistances(embedding, 10)
+	sort.Float64s(core)
+	sort.Float64s(apart)
+	step = append(step, core[len(core)/2])
+	t.Logf("%d new points: median distance to umap-learn's position %.3f, 90th percentile %.3f (median 10-NN spacing in the embedding %.3f)",
+		len(got), apart[len(apart)/2], apart[len(apart)*9/10], step[0])
+	if apart[len(apart)/2] > step[0] {
+		t.Fatalf("new points land farther from umap-learn's positions (%.3f) than the typical spacing between neighbours (%.3f)", apart[len(apart)/2], step[0])
+	}
+}

@@ -34,8 +34,29 @@ type graphEdge struct {
 	weight     float32
 }
 
+// UMAPModel is a fitted UMAP: the training rows, their embedding, and what new points need.
+type UMAPModel struct {
+	params    UMAP
+	data      [][]float32
+	embedding [][]float64
+	a, b      float64
+	neighbors int
+}
+
+// Embedding returns the position of every training row.
+func (m *UMAPModel) Embedding() [][]float64 { return m.embedding }
+
 // Fit embeds the rows of data and returns one Components-dimensional point per row.
 func (u UMAP) Fit(data [][]float32) ([][]float64, error) {
+	m, err := u.FitModel(data)
+	if err != nil {
+		return nil, err
+	}
+	return m.embedding, nil
+}
+
+// FitModel embeds the rows of data and keeps what is needed to embed new rows later.
+func (u UMAP) FitModel(data [][]float32) (*UMAPModel, error) {
 	n := len(data)
 	switch {
 	case u.Components < 1 || u.Neighbors < 2 || u.Spread <= 0 || u.MinDist < 0 || u.NegativeSamples < 0:
@@ -61,7 +82,96 @@ func (u UMAP) Fit(data [][]float32) ([][]float64, error) {
 	a, b := findAB(u.Spread, u.MinDist)
 	layout := newLayout(init, graph, epochs, a, b, u.NegativeSamples, rng)
 	layout.run()
+	return &UMAPModel{params: u, data: data, embedding: layout.points(), a: a, b: b, neighbors: k}, nil
+}
+
+// Transform places new rows among the training embedding: each starts at the weighted average of
+// its neighbours' positions and is then pulled and pushed for a third of the training epochs
+// while the training points stay fixed.
+func (m *UMAPModel) Transform(data [][]float32) ([][]float64, error) {
+	for _, row := range data {
+		if len(row) != len(m.data[0]) {
+			return nil, errors.New("umap: new rows differ in length from the training rows")
+		}
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	idx, dist := cosineSearch(data, m.data, m.neighbors, false)
+	graph := bipartiteGraph(idx, dist, m.neighbors)
+	init := averageNeighbourPositions(graph, len(data), m.embedding)
+	epochs := m.params.Epochs / 3
+	if m.params.Epochs <= 0 {
+		epochs = 30
+		if len(data) <= 10000 {
+			epochs = 100
+		}
+	}
+	epochs = max(epochs, 1)
+	layout := newTransformLayout(init, m.embedding, pruneGraph(graph, epochs), epochs, m.a, m.b, m.params.NegativeSamples, &splitMix{m.params.Seed})
+	layout.run()
 	return layout.points(), nil
+}
+
+// disconnectionDistance is the cosine distance beyond which a neighbour counts as unconnected.
+const disconnectionDistance = 2
+
+// bipartiteGraph connects every new point to its training neighbours. Unlike the training graph
+// it has no self edges, no nearest-neighbour offset (rho is zero) and is not symmetrised.
+func bipartiteGraph(idx [][]int32, dist [][]float64, k int) []graphEdge {
+	sigma, rho := smoothKNN(dist, k, false)
+	var edges []graphEdge
+	for i := range idx {
+		for j, nb := range idx[i] {
+			if dist[i][j] >= disconnectionDistance {
+				continue
+			}
+			v := 1.0
+			if d := dist[i][j] - rho[i]; d > 0 && sigma[i] != 0 {
+				v = math.Exp(-d / sigma[i])
+			}
+			if w := float32(v); w > 0 {
+				edges = append(edges, graphEdge{int32(i), nb, w})
+			}
+		}
+	}
+	return edges
+}
+
+// averageNeighbourPositions starts each new point at the position of a training point it equals,
+// or else at the average of its neighbours' positions weighted by the graph. A point without
+// neighbours starts at the origin.
+func averageNeighbourPositions(edges []graphEdge, count int, embedding [][]float64) [][]float64 {
+	dim := len(embedding[0])
+	out := make([][]float64, count)
+	for i := range out {
+		out[i] = make([]float64, dim)
+	}
+	exact := make([]int32, count)
+	for i := range exact {
+		exact[i] = -1
+	}
+	totals := make([]float64, count)
+	for _, e := range edges {
+		totals[e.head] += float64(e.weight)
+		if e.weight == 1 && (exact[e.head] < 0 || e.tail < exact[e.head]) {
+			exact[e.head] = e.tail
+		}
+	}
+	for _, e := range edges {
+		if exact[e.head] >= 0 {
+			continue
+		}
+		for d := range out[e.head] {
+			out[e.head][d] += float64(e.weight) / totals[e.head] * embedding[e.tail][d]
+		}
+	}
+	for i, t := range exact {
+		if t >= 0 {
+			copy(out[i], embedding[t])
+		}
+	}
+	return out
 }
 
 func defaultEpochs(points int) int {
@@ -129,78 +239,116 @@ func findAB(spread, minDist float64) (a, b float64) {
 
 // cosineNeighbors returns for every row its k nearest rows by cosine distance, itself first.
 func cosineNeighbors(data [][]float32, k int) ([][]int32, [][]float64) {
-	n, dim := len(data), len(data[0])
-	unit := make([]float32, n*dim)
+	return cosineSearch(data, data, k, true)
+}
+
+// cosineSearch finds for every query row the k nearest reference rows by cosine distance. With
+// self set, the queries are the reference rows and each row comes first in its own list.
+func cosineSearch(queries, reference [][]float32, k int, self bool) ([][]int32, [][]float64) {
+	n, dim := len(reference), len(reference[0])
 	unitT := make([]float32, n*dim)
 	norms := make([]float64, n)
-	for i, row := range data {
-		var norm float64
-		for _, v := range row {
-			norm += float64(v) * float64(v)
+	unitRows := func(rows [][]float32) ([]float32, []float64) {
+		unit, rowNorms := make([]float32, len(rows)*dim), make([]float64, len(rows))
+		for i, row := range rows {
+			var norm float64
+			for _, v := range row {
+				norm += float64(v) * float64(v)
+			}
+			rowNorms[i] = math.Sqrt(norm)
+			scale := float32(0)
+			if norm > 0 {
+				scale = float32(1 / rowNorms[i])
+			}
+			for d, v := range row {
+				unit[i*dim+d] = v * scale
+			}
 		}
-		norms[i] = math.Sqrt(norm)
-		scale := float32(0)
-		if norm > 0 {
-			scale = float32(1 / norms[i])
+		return unit, rowNorms
+	}
+	unit, queryNorms := unitRows(queries)
+	if self {
+		norms = queryNorms
+		for i := 0; i < n; i++ {
+			for d := 0; d < dim; d++ {
+				unitT[d*n+i] = unit[i*dim+d]
+			}
 		}
-		for d, v := range row {
-			unit[i*dim+d] = v * scale
-			unitT[d*n+i] = v * scale
+	} else {
+		refUnit, refNorms := unitRows(reference)
+		norms = refNorms
+		for i := 0; i < n; i++ {
+			for d := 0; d < dim; d++ {
+				unitT[d*n+i] = refUnit[i*dim+d]
+			}
 		}
 	}
-	idx, dist := make([][]int32, n), make([][]float64, n)
+	idx, dist := make([][]int32, len(queries)), make([][]float64, len(queries))
 	const block = 256
 	sims := make([]float32, block*n)
-	for lo := 0; lo < n; lo += block {
-		hi := min(lo+block, n)
+	for lo := 0; lo < len(queries); lo += block {
+		hi := min(lo+block, len(queries))
 		clear(sims)
 		runGemms([]gemmJob{{out: sims[:(hi-lo)*n], a: unit[lo*dim : hi*dim], b: unitT, m: hi - lo, k: dim, n: n}})
 		parallelFor(hi-lo, n*k, func(from, to int) {
 			for r := from; r < to; r++ {
-				idx[lo+r], dist[lo+r] = nearestByDistance(sims[r*n:(r+1)*n], lo+r, k)
-				refineDistances(data, norms, idx[lo+r], dist[lo+r])
+				q := lo + r
+				owner := -1
+				if self {
+					owner = q
+				}
+				idx[q], dist[q] = nearestByDistance(sims[r*n:(r+1)*n], owner, k)
+				refineDistances(queries[q], queryNorms[q], reference, norms, idx[q], dist[q], owner >= 0)
 			}
 		})
 	}
 	return idx, dist
 }
 
-// refineDistances recomputes the distances of a neighbour row in float64, where identical
-// vectors come out as exactly zero, and restores the ascending order after self.
-func refineDistances(data [][]float32, norms []float64, idx []int32, dist []float64) {
-	self := int(idx[0])
-	for t := 1; t < len(idx); t++ {
+// refineDistances recomputes the distances of a neighbour row in float64, where identical vectors
+// come out as exactly zero, and restores the ascending order. A row that starts with its own
+// point keeps it first.
+func refineDistances(query []float32, queryNorm float64, reference [][]float32, norms []float64, idx []int32, dist []float64, selfFirst bool) {
+	first := 0
+	if selfFirst {
+		first = 1
+	}
+	for t := first; t < len(idx); t++ {
 		other := int(idx[t])
 		var dotProduct float64
-		for d, v := range data[self] {
-			dotProduct += float64(v) * float64(data[other][d])
+		for d, v := range query {
+			dotProduct += float64(v) * float64(reference[other][d])
 		}
 		dist[t] = 1
-		if norms[self] > 0 && norms[other] > 0 {
-			dist[t] = max(0, 1-dotProduct/(norms[self]*norms[other]))
+		if queryNorm > 0 && norms[other] > 0 {
+			dist[t] = max(0, 1-dotProduct/(queryNorm*norms[other]))
 		}
 		if dist[t] < 1e-9 {
 			dist[t] = 0
 		}
 	}
-	order := make([]int, len(idx)-1)
+	order := make([]int, len(idx)-first)
 	for i := range order {
-		order[i] = i + 1
+		order[i] = i + first
 	}
 	sort.SliceStable(order, func(a, b int) bool { return dist[order[a]] < dist[order[b]] })
 	sortedIdx, sortedDist := make([]int32, len(order)), make([]float64, len(order))
 	for i, o := range order {
 		sortedIdx[i], sortedDist[i] = idx[o], dist[o]
 	}
-	copy(idx[1:], sortedIdx)
-	copy(dist[1:], sortedDist)
+	copy(idx[first:], sortedIdx)
+	copy(dist[first:], sortedDist)
 }
 
-// nearestByDistance picks the k-1 most similar entries other than self and puts self first.
+// nearestByDistance picks the k most similar entries. A row that belongs to the reference
+// (self >= 0) is excluded from its own candidates and put first.
 func nearestByDistance(sims []float32, self, k int) ([]int32, []float64) {
 	idx, dist := make([]int32, k), make([]float64, k)
-	idx[0] = int32(self)
-	filled := 1
+	first, filled := 0, 0
+	if self >= 0 {
+		idx[0] = int32(self)
+		first, filled = 1, 1
+	}
 	for j, s := range sims {
 		if j == self {
 			continue
@@ -210,7 +358,7 @@ func nearestByDistance(sims []float32, self, k int) ([]int32, []float64) {
 			continue
 		}
 		at := min(filled, k-1)
-		for at > 1 && dist[at-1] > d {
+		for at > first && dist[at-1] > d {
 			idx[at], dist[at] = idx[at-1], dist[at-1]
 			at--
 		}
@@ -222,7 +370,7 @@ func nearestByDistance(sims []float32, self, k int) ([]int32, []float64) {
 
 // smoothKNN finds each point's distance to its nearest neighbour (rho) and the kernel width
 // (sigma) at which the fuzzy neighbourhood has log2(k) members.
-func smoothKNN(dist [][]float64, k int) (sigma, rho []float64) {
+func smoothKNN(dist [][]float64, k int, offsetByNearest bool) (sigma, rho []float64) {
 	target := math.Log2(float64(k))
 	sigma, rho = make([]float64, len(dist)), make([]float64, len(dist))
 	var total float64
@@ -236,7 +384,7 @@ func smoothKNN(dist [][]float64, k int) (sigma, rho []float64) {
 	meanAll := total / float64(count)
 	for i, row := range dist {
 		for _, d := range row {
-			if d > 0 {
+			if d > 0 && offsetByNearest {
 				rho[i] = d
 				break
 			}
@@ -283,7 +431,7 @@ func smoothKNN(dist [][]float64, k int) (sigma, rho []float64) {
 // fuzzyGraph builds the symmetric weighted neighbour graph: a + aᵀ - a∘aᵀ over the directed
 // membership strengths. Edges are sorted by head and then tail.
 func fuzzyGraph(idx [][]int32, dist [][]float64, k int) []graphEdge {
-	sigma, rho := smoothKNN(dist, k)
+	sigma, rho := smoothKNN(dist, k, true)
 	directed := map[[2]int32]float64{}
 	for i := range idx {
 		for j, nb := range idx[i] {

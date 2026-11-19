@@ -74,6 +74,40 @@ func TestRunReportsDocumentsOutsideEveryTopicAsOutliers(t *testing.T) {
 	}
 }
 
+func TestRunAssignsNewDocumentsToTheTopicsFound(t *testing.T) {
+	withStub(t)
+	path := filepath.Join(t.TempDir(), "new.txt")
+	if err := os.WriteFile(path, []byte("astronomy telescope and the galaxy\n\ncooking recipe and the butter\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"-model", "unused", "-assign", path}, strings.NewReader(corpus()), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	last := lines[len(lines)-2:]
+	if !strings.HasSuffix(last[0], "astronomy telescope and the galaxy") || !strings.HasSuffix(last[1], "cooking recipe and the butter") || last[0][0] == '-' || last[0][:1] == last[1][:1] {
+		t.Fatalf("each new document is assigned, in order, to a topic of its subject:\n%s", out.String())
+	}
+	if code := run([]string{"-model", "unused", "-assign", filepath.Join(t.TempDir(), "missing.txt")}, strings.NewReader(corpus()), &out, &errOut); code != 1 {
+		t.Errorf("a missing file to assign: exit %d", code)
+	}
+	empty := filepath.Join(t.TempDir(), "empty.txt")
+	os.WriteFile(empty, nil, 0o644)
+	if code := run([]string{"-model", "unused", "-assign", empty}, strings.NewReader(corpus()), &out, &errOut); code != 0 {
+		t.Errorf("an empty file assigns nothing: exit %d", code)
+	}
+	loadEmbedder = func(string) (onnxgo.TextEmbedder, error) { return &failsOnSecondCall{}, nil }
+	if code := run([]string{"-model", "unused", "-assign", path}, strings.NewReader(corpus()), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "embedding failed") {
+		t.Errorf("an embedder failing on the new documents: exit %d, stderr %q", code, errOut.String())
+	}
+	broken := filepath.Join(t.TempDir(), "dir")
+	os.Mkdir(broken, 0o755)
+	if code := run([]string{"-model", "unused", "-assign", broken}, strings.NewReader(corpus()), &out, &errOut); code != 1 {
+		t.Errorf("an unreadable file: exit %d", code)
+	}
+}
+
 func TestRunReadsDocumentsFromAFile(t *testing.T) {
 	withStub(t)
 	path := filepath.Join(t.TempDir(), "docs.txt")
@@ -87,6 +121,16 @@ func TestRunReadsDocumentsFromAFile(t *testing.T) {
 	if !strings.Contains(out.String(), "documents):") {
 		t.Fatalf("output %q", out.String())
 	}
+}
+
+type failsOnSecondCall struct{ calls int }
+
+func (f *failsOnSecondCall) Embed(texts []string) ([][]float32, error) {
+	f.calls++
+	if f.calls > 1 {
+		return nil, errors.New("embedding failed")
+	}
+	return stubEmbedder{}.Embed(texts)
 }
 
 type brokenReader struct{}

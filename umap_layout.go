@@ -54,18 +54,17 @@ type layout struct {
 	nextNeg     []float64
 	rng         *splitMix
 	moveOther   bool
+	initialRate float64
+	target      []float32
+	targetCount int
 	attraction  *coefficientTable
 	repulsion   *coefficientTable
 }
 
 func newLayout(init [][]float64, edges []graphEdge, epochs int, a, b float64, negatives int, rng *splitMix) *layout {
-	l := &layout{n: len(init), dim: len(init[0]), a: a, b: b, gamma: 1, negatives: negatives, epochs: epochs, rng: rng, moveOther: true}
-	l.coords = make([]float32, l.n*l.dim)
-	for i, p := range init {
-		for d, v := range p {
-			l.coords[i*l.dim+d] = float32(v)
-		}
-	}
+	l := &layout{n: len(init), dim: len(init[0]), a: a, b: b, gamma: 1, negatives: negatives, epochs: epochs, rng: rng, moveOther: true, initialRate: 1}
+	l.coords = flatten32(init)
+	l.target, l.targetCount = l.coords, l.n
 	var strongest float32
 	for _, e := range edges {
 		strongest = max(strongest, e.weight)
@@ -82,6 +81,26 @@ func newLayout(init [][]float64, edges []graphEdge, epochs int, a, b float64, ne
 	}
 	l.nextSample = append([]float64(nil), l.perSample...)
 	l.nextNeg = append([]float64(nil), l.perNegative...)
+	return l
+}
+
+func flatten32(points [][]float64) []float32 {
+	out := make([]float32, 0, len(points)*len(points[0]))
+	for _, p := range points {
+		for _, v := range p {
+			out = append(out, float32(v))
+		}
+	}
+	return out
+}
+
+// newTransformLayout places new points among fixed training points. Edges lead from a new point
+// to a training point, only the new points move, and the learning rate starts at a quarter.
+func newTransformLayout(init, training [][]float64, edges []graphEdge, epochs int, a, b float64, negatives int, rng *splitMix) *layout {
+	l := newLayout(init, edges, epochs, a, b, negatives, rng)
+	l.target, l.targetCount = flatten32(training), len(training)
+	l.moveOther = false
+	l.initialRate = 0.25
 	return l
 }
 
@@ -142,9 +161,9 @@ func (l *layout) run() {
 		return 2 * l.gamma * l.b / ((0.001 + dsq) * (l.a*math.Pow(dsq, l.b) + 1))
 	})
 	for n := 0; n < l.epochs; n++ {
-		alpha := 1.0
+		alpha := l.initialRate
 		if n > 0 {
-			alpha = 1 - float64(n-1)/float64(l.epochs)
+			alpha = l.initialRate * (1 - float64(n-1)/float64(l.epochs))
 		}
 		l.epoch(n, alpha)
 	}
@@ -157,7 +176,7 @@ func (l *layout) epoch(n int, alpha float64) {
 			continue
 		}
 		j, k := int(l.head[e]), int(l.tail[e])
-		current, other := l.coords[j*dim:(j+1)*dim], l.coords[k*dim:(k+1)*dim]
+		current, other := l.coords[j*dim:(j+1)*dim], l.target[k*dim:(k+1)*dim]
 		dsq := float64(squaredDist32(current, other))
 		coeff := 0.0
 		if dsq > 0 {
@@ -176,8 +195,8 @@ func (l *layout) epoch(n int, alpha float64) {
 		}
 		draws := int((float64(n) - l.nextNeg[e]) / l.perNegative[e])
 		for p := 0; p < draws; p++ {
-			k := int(l.rng.next() % uint64(l.n))
-			other := l.coords[k*dim : (k+1)*dim]
+			k := int(l.rng.next() % uint64(l.targetCount))
+			other := l.target[k*dim : (k+1)*dim]
 			dsq := float64(squaredDist32(current, other))
 			coeff := 0.0
 			switch {

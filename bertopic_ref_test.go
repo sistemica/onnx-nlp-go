@@ -179,4 +179,62 @@ func TestBERTopicEndToEndAgainstReference(t *testing.T) {
 	if overlap < 0.5 {
 		t.Fatalf("topic words overlap only %.3f with BERTopic's", overlap)
 	}
+
+	var newRec struct {
+		Topics []int `json:"topics"`
+	}
+	var newDocs []string
+	for file, into := range map[string]any{"new_docs.json": &newDocs, "new_topics.json": &newRec} {
+		raw, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start = time.Now()
+	topics, strengths, err := model.Transform(newDocs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Transform of %d new documents: %v", len(newDocs), time.Since(start).Round(10*time.Millisecond))
+	toLibrary := map[int]int{}
+	for _, topic := range model.Topics {
+		best, bestCount := -1, 0
+		for key, n := range topicOverlap(model.Assignments, rec.Topics) {
+			if key[0] == topic.ID && n > bestCount {
+				best, bestCount = key[1], n
+			}
+		}
+		toLibrary[topic.ID] = best
+	}
+	agree := func(mine, theirs []int) float64 {
+		hits := 0
+		for i := range mine {
+			if toLibrary[mine[i]] == theirs[i] {
+				hits++
+			}
+		}
+		return float64(hits) / float64(len(mine))
+	}
+	trainAgreement, newAgreement := agree(model.Assignments, rec.Topics), agree(topics, newRec.Topics)
+	t.Logf("topics agreeing with BERTopic after aligning topic ids: training documents %.3f, held-out documents %.3f; outliers among held-out: go %.3f, BERTopic %.3f",
+		trainAgreement, newAgreement, float64(countValue(topics, -1))/float64(len(topics)), float64(countValue(newRec.Topics, -1))/float64(len(topics)))
+	for i, s := range strengths {
+		if s < 0 || s > 1 || (topics[i] < 0) != (s == 0) {
+			t.Fatalf("document %d: topic %d with strength %v", i, topics[i], s)
+		}
+	}
+	if newAgreement < trainAgreement-0.15 {
+		t.Fatalf("held-out documents agree with BERTopic at %.3f, far below the %.3f of the training documents", newAgreement, trainAgreement)
+	}
+}
+
+func topicOverlap(a, b []int) map[[2]int]int {
+	out := map[[2]int]int{}
+	for i := range a {
+		out[[2]int{a[i], b[i]}]++
+	}
+	return out
 }

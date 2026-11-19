@@ -42,11 +42,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	stopWords := fs.Bool("stop-words", false, "drop English stop words before counting")
 	seed := fs.Uint64("seed", 42, "random seed of the dimensionality reduction")
 	assignments := fs.Bool("assignments", false, "also print the topic of every document")
+	assignFile := fs.String("assign", "", "file with one document per line to assign to the topics found (printed as topic, strength, document)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *model == "" {
-		fmt.Fprintln(stderr, "usage: bertopic -model DIR [-docs FILE] [-min-topic-size 10] [-top-words 10] [-stop-words] [-seed 42] [-assignments]")
+		fmt.Fprintln(stderr, "usage: bertopic -model DIR [-docs FILE] [-min-topic-size 10] [-top-words 10] [-stop-words] [-seed 42] [-assignments] [-assign FILE]")
 		return 2
 	}
 	input := stdin
@@ -91,6 +92,32 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		for i, id := range result.Assignments {
 			fmt.Fprintf(stdout, "%d\t%.3f\t%s\n", id, result.Strengths[i], docs[i])
 		}
+	}
+	if *assignFile != "" {
+		return assign(result, *assignFile, stdout, stderr)
+	}
+	return 0
+}
+
+func assign(model *onnxgo.TopicModel, path string, stdout, stderr io.Writer) int {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer f.Close()
+	docs, err := readDocuments(f)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	topics, strengths, err := model.Transform(docs)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	for i, id := range topics {
+		fmt.Fprintf(stdout, "%d\t%.3f\t%s\n", id, strengths[i], docs[i])
 	}
 	return 0
 }

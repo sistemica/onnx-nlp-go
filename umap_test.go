@@ -134,7 +134,7 @@ func TestCosineNeighborsOrderDuplicatesAndZeroVectors(t *testing.T) {
 func TestSmoothKNNAndFuzzyGraph(t *testing.T) {
 	idx := [][]int32{{0, 1, 2}, {1, 0, 2}, {2, 1, 0}}
 	dist := [][]float64{{0, 0.1, 0.4}, {0, 0.1, 0.3}, {0, 0.3, 0.4}}
-	sigma, rho := smoothKNN(dist, 3)
+	sigma, rho := smoothKNN(dist, 3, true)
 	if rho[0] != 0.1 || rho[2] != 0.3 {
 		t.Fatalf("rho is the distance to the nearest neighbour: %v", rho)
 	}
@@ -177,7 +177,7 @@ func TestSmoothKNNAndFuzzyGraph(t *testing.T) {
 }
 
 func TestSmoothKNNWithoutPositiveDistances(t *testing.T) {
-	sigma, rho := smoothKNN([][]float64{{0, 0, 0}, {0, 0, 0}}, 3)
+	sigma, rho := smoothKNN([][]float64{{0, 0, 0}, {0, 0, 0}}, 3, true)
 	if rho[0] != 0 || sigma[0] <= 0 {
 		t.Fatalf("identical points: rho %v sigma %v", rho, sigma)
 	}
@@ -208,7 +208,7 @@ func TestDefaultEpochsDependOnInputSize(t *testing.T) {
 
 func TestSmoothKNNGrowsTheKernelWidthForDistantNeighbours(t *testing.T) {
 	dist := [][]float64{{0, 5, 10, 20, 40}}
-	sigma, rho := smoothKNN(dist, 5)
+	sigma, rho := smoothKNN(dist, 5, true)
 	members := 1.0
 	for _, d := range dist[0][2:] {
 		members += math.Exp(-(d - rho[0]) / sigma[0])

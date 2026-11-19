@@ -22,10 +22,16 @@ from umap.layouts import optimize_layout_euclidean
 
 out, n_docs = sys.argv[1], int(sys.argv[2])
 data = fetch_20newsgroups(subset="train", remove=("headers", "footers", "quotes"), data_home=out + "/sk")
-docs = [d for d in data.data if len(d.split()) >= 5][:n_docs]
+N_NEW = 500
+everything = [d for d in data.data if len(d.split()) >= 5][: n_docs + N_NEW]
+docs, new_docs = everything[:n_docs], everything[n_docs:]
 json.dump(docs, open(out + "/docs.json", "w"))
+json.dump(new_docs, open(out + "/new_docs.json", "w"))
 
-emb = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu").encode(docs, batch_size=64, normalize_embeddings=False)
+encoder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")
+emb = encoder.encode(docs, batch_size=64, normalize_embeddings=False)
+new_emb = encoder.encode(new_docs, batch_size=64, normalize_embeddings=False)
+np.save(out + "/new_emb.npy", new_emb.astype(np.float32))
 np.save(out + "/emb.npy", emb.astype(np.float32))
 
 umap = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=42)
@@ -76,6 +82,26 @@ hdb = HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method=
 hdb.fit(low)
 np.save(out + "/hdb_labels.npy", hdb.labels_)
 np.save(out + "/hdb_probs.npy", hdb.probabilities_)
+from umap.umap_ import init_graph_transform
+from hdbscan import approximate_predict
+
+umap.transform_mode = "graph"
+new_graph = umap.transform(new_emb).tocoo()
+umap.transform_mode = "embedding"
+np.save(out + "/new_graph_edges.npy", np.stack([new_graph.row, new_graph.col], 1).astype(np.float64))
+np.save(out + "/new_graph_weights.npy", new_graph.data.astype(np.float64))
+clean = new_graph.tocsr()
+clean.eliminate_zeros()
+np.save(out + "/new_init.npy", init_graph_transform(clean, umap.embedding_).astype(np.float32))
+new_low = umap.transform(new_emb)
+np.save(out + "/new_umap.npy", new_low.astype(np.float64))
+predictor = HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method="eom", approx_min_span_tree=False, prediction_data=True).fit(low)
+pred_labels, pred_probs = approximate_predict(predictor, new_low)
+np.save(out + "/pred_labels.npy", pred_labels)
+np.save(out + "/pred_probs.npy", pred_probs)
+np.save(out + "/pred_train_labels.npy", predictor.labels_)
+np.save(out + "/pred_train_linkage.npy", np.asarray(predictor.single_linkage_tree_.to_numpy(), dtype=np.float64))
+
 exact = HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method="eom", approx_min_span_tree=False).fit(low)
 np.save(out + "/hdb_exact_labels.npy", exact.labels_)
 np.save(out + "/hdb_exact_probs.npy", exact.probabilities_)
@@ -89,6 +115,8 @@ for seed in (1, 2, 3, 4):
 topic_model = BERTopic(umap_model=UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=42),
                        hdbscan_model=HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method="eom", prediction_data=True))
 topics, probs = topic_model.fit_transform(docs, emb)
+new_topics, new_probs = topic_model.transform(new_docs, new_emb)
+json.dump({"topics": [int(t) for t in new_topics], "probs": [float(p) for p in new_probs]}, open(out + "/new_topics.json", "w"))
 stopped = BERTopic(umap_model=UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=42),
                    hdbscan_model=HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method="eom", prediction_data=True),
                    vectorizer_model=CountVectorizer(stop_words="english"))

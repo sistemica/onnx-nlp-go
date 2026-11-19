@@ -104,6 +104,8 @@ func readNpyAny(t testing.TB, path string) ([]float64, []int) {
 			data[i] = float64(math.Float32frombits(binary.LittleEndian.Uint32(body[4*i:])))
 		case strings.Contains(header, "'<f8'"):
 			data[i] = math.Float64frombits(binary.LittleEndian.Uint64(body[8*i:]))
+		case strings.Contains(header, "'<i4'"):
+			data[i] = float64(int32(binary.LittleEndian.Uint32(body[4*i:])))
 		case strings.Contains(header, "'<i8'"):
 			data[i] = float64(int64(binary.LittleEndian.Uint64(body[8*i:])))
 		default:

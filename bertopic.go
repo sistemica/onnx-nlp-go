@@ -48,6 +48,11 @@ type TopicModel struct {
 	// Assignments holds each document's topic ID, Strengths its cluster membership in [0, 1].
 	Assignments []int
 	Strengths   []float64
+
+	embedder TextEmbedder
+	umap     *UMAPModel
+	clusters *HDBSCANModel
+	topicOf  map[int]int
 }
 
 // Fit embeds docs and models their topics.
@@ -59,7 +64,11 @@ func (b *BERTopic) Fit(docs []string) (*TopicModel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bertopic: embedding: %w", err)
 	}
-	return b.FitEmbeddings(docs, embeddings)
+	model, err := b.FitEmbeddings(docs, embeddings)
+	if model != nil {
+		model.embedder = b.Embedder
+	}
+	return model, err
 }
 
 // FitEmbeddings models the topics of docs given their embeddings.
@@ -67,25 +76,63 @@ func (b *BERTopic) FitEmbeddings(docs []string, embeddings [][]float32) (*TopicM
 	if len(docs) != len(embeddings) {
 		return nil, fmt.Errorf("bertopic: %d documents but %d embeddings", len(docs), len(embeddings))
 	}
-	low, err := b.UMAP.Fit(embeddings)
+	reducer, err := b.UMAP.FitModel(embeddings)
 	if err != nil {
 		return nil, err
 	}
-	labels, strengths, err := HDBSCAN{MinClusterSize: b.MinTopicSize}.Fit(low)
+	clusters, err := HDBSCAN{MinClusterSize: b.MinTopicSize}.FitModel(reducer.Embedding())
 	if err != nil {
 		return nil, err
 	}
-	labels = renumberBySize(labels)
+	topicOf := sizeRanking(clusters.Labels)
+	labels := make([]int, len(clusters.Labels))
+	for i, l := range clusters.Labels {
+		labels[i] = rankedTopic(topicOf, l)
+	}
+	strengths := clusters.Strengths
 	var stop map[string]struct{}
 	if b.RemoveStopWords {
 		stop = englishStopWords
 	}
-	return &TopicModel{Topics: describeTopics(docs, labels, b.TopNWords, b.Language, stop), Assignments: labels, Strengths: strengths}, nil
+	return &TopicModel{
+		Topics: describeTopics(docs, labels, b.TopNWords, b.Language, stop), Assignments: labels, Strengths: strengths,
+		umap: reducer, clusters: clusters, topicOf: topicOf,
+	}, nil
 }
 
-// renumberBySize gives the clusters the IDs 0, 1, ... in order of decreasing size; ties keep
-// their original order. Noise stays -1.
-func renumberBySize(labels []int) []int {
+// Transform assigns new documents to the existing topics without changing them. It needs the
+// model to have been fitted with Fit, which keeps the embedder.
+func (m *TopicModel) Transform(docs []string) (topics []int, strengths []float64, err error) {
+	if m.embedder == nil {
+		return nil, nil, errors.New("bertopic: the model has no embedder; use TransformEmbeddings")
+	}
+	embeddings, err := m.embedder.Embed(docs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bertopic: embedding: %w", err)
+	}
+	return m.TransformEmbeddings(embeddings)
+}
+
+// TransformEmbeddings assigns documents with the given embeddings to the existing topics.
+func (m *TopicModel) TransformEmbeddings(embeddings [][]float32) (topics []int, strengths []float64, err error) {
+	low, err := m.umap.Transform(embeddings)
+	if err != nil {
+		return nil, nil, err
+	}
+	labels, strengths, err := m.clusters.Predict(low)
+	if err != nil {
+		return nil, nil, err
+	}
+	topics = make([]int, len(labels))
+	for i, l := range labels {
+		topics[i] = rankedTopic(m.topicOf, l)
+	}
+	return topics, strengths, nil
+}
+
+// sizeRanking maps every cluster label to its topic ID: 0, 1, ... in order of decreasing size,
+// with ties in their original order.
+func sizeRanking(labels []int) map[int]int {
 	sizes := map[int]int{}
 	for _, l := range labels {
 		if l >= 0 {
@@ -106,14 +153,15 @@ func renumberBySize(labels []int) []int {
 	for i, id := range ids {
 		rank[id] = i
 	}
-	out := make([]int, len(labels))
-	for i, l := range labels {
-		out[i] = -1
-		if l >= 0 {
-			out[i] = rank[l]
-		}
+	return rank
+}
+
+// rankedTopic returns the topic ID of a cluster label; noise stays -1.
+func rankedTopic(ranking map[int]int, label int) int {
+	if label < 0 {
+		return -1
 	}
-	return out
+	return ranking[label]
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^A-Za-z0-9 ]+`)

@@ -149,3 +149,37 @@ func TestHDBSCANOnOtherEmbeddingsAgainstReference(t *testing.T) {
 		}
 	}
 }
+
+func TestHDBSCANPredictAgainstReference(t *testing.T) {
+	dir := bertopicRef(t)
+	points := readPoints(t, filepath.Join(dir, "umap5.npy"))
+	linkage, shape := readNpyAny(t, filepath.Join(dir, "pred_train_linkage.npy"))
+	rows := make([]linkageRow, shape[0])
+	for i := range rows {
+		rows[i] = linkageRow{int(linkage[i*4]), int(linkage[i*4+1]), linkage[i*4+2], int(linkage[i*4+3])}
+	}
+	model := &HDBSCANModel{points: points, minSamples: 10}
+	model.cluster(rows, 10)
+	if want := readNpyInts(t, filepath.Join(dir, "pred_train_labels.npy")); adjustedRand(model.Labels, want) != 1 {
+		t.Fatal("the model built from the library's dendrogram must reproduce its labels")
+	}
+	newPoints := readPoints(t, filepath.Join(dir, "new_umap.npy"))
+	wantLabels := readNpyInts(t, filepath.Join(dir, "pred_labels.npy"))
+	wantStrengths, _ := readNpyAny(t, filepath.Join(dir, "pred_probs.npy"))
+	labels, strengths, err := model.Predict(newPoints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong, worst := 0, 0.0
+	for i := range labels {
+		if labels[i] != wantLabels[i] {
+			wrong++
+		}
+		worst = max(worst, math.Abs(strengths[i]-wantStrengths[i]))
+	}
+	t.Logf("%d new points: %d labels differ from approximate_predict (%d noise in the library's answer), largest strength difference %.3g",
+		len(labels), wrong, countValue(wantLabels, -1), worst)
+	if wrong != 0 || worst > 1e-9 {
+		t.Fatalf("prediction differs from the library: %d labels, strength %g", wrong, worst)
+	}
+}
