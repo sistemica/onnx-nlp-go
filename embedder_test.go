@@ -97,6 +97,23 @@ func TestEmbedderBatchesAndKeepsOrder(t *testing.T) {
 	}
 }
 
+func TestEmbedTrimsTextLikeSentenceTransformers(t *testing.T) {
+	e, err := LoadEmbedder(minilmDir(t, 0, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.Embed([]string{"alice met bob", " \t alice met bob\u001f\n", "\u001c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !closeTo(got[0], got[1]) {
+		t.Fatalf("surrounding whitespace must not change the embedding: %v vs %v", got[0], got[1])
+	}
+	if len(got[2]) == 0 {
+		t.Fatal("a text that is only whitespace still embeds")
+	}
+}
+
 func TestLoadEmbedderErrors(t *testing.T) {
 	mutate := func(name string, edit func(dir string)) {
 		dir := minilmDir(t, 0, true)
@@ -106,14 +123,82 @@ func TestLoadEmbedderErrors(t *testing.T) {
 		}
 	}
 	mutate("no pooling config", func(d string) { os.Remove(filepath.Join(d, "1_Pooling", "config.json")) })
-	mutate("cls pooling", func(d string) {
-		os.WriteFile(filepath.Join(d, "1_Pooling", "config.json"), []byte(`{"pooling_mode_cls_token":true}`), 0o644)
+	mutate("no pooling mode", func(d string) {
+		os.WriteFile(filepath.Join(d, "1_Pooling", "config.json"), []byte(`{"pooling_mode_max_tokens":true}`), 0o644)
 	})
+	mutate("two pooling modes", func(d string) {
+		os.WriteFile(filepath.Join(d, "1_Pooling", "config.json"), []byte(`{"pooling_mode_cls_token":true,"pooling_mode_mean_tokens":true}`), 0o644)
+	})
+	mutate("unsupported tokenizer", func(d string) {
+		os.WriteFile(filepath.Join(d, "tokenizer.json"), []byte(`{"model":{"type":"BPE"}}`), 0o644)
+	})
+	mutate("broken tokenizer", func(d string) { os.WriteFile(filepath.Join(d, "tokenizer.json"), []byte(`{`), 0o644) })
 	mutate("no modules", func(d string) { os.Remove(filepath.Join(d, "modules.json")) })
 	mutate("no tokenizer", func(d string) { os.Remove(filepath.Join(d, "tokenizer.json")) })
 	mutate("no model", func(d string) { os.Remove(filepath.Join(d, "onnx", "model.onnx")) })
 	if _, err := LoadEmbedder(t.TempDir()); err == nil {
 		t.Fatal("empty directory must fail")
+	}
+}
+
+func TestEmbedderCLSPoolingTakesTheFirstToken(t *testing.T) {
+	dir := minilmDir(t, 0, true)
+	os.WriteFile(filepath.Join(dir, "1_Pooling", "config.json"), []byte(`{"pooling_mode_cls_token":true}`), 0o644)
+	cls, err := LoadEmbedder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "1_Pooling", "config.json"), []byte(`{"pooling_mode_mean_tokens":true}`), 0o644)
+	mean, err := LoadEmbedder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := []string{"alice met bob", "bob"}
+	a, err := cls.Embed(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := mean.Embed(text)
+	if closeTo(a[0], b[0]) {
+		t.Fatalf("CLS and mean pooling must give different vectors for a text with several tokens: %v", a[0])
+	}
+	single, _ := cls.Embed(text[:1])
+	if !closeTo(a[0], single[0]) {
+		t.Fatalf("a text must embed the same alone and in a batch: %v vs %v", a[0], single[0])
+	}
+}
+
+func TestEmbedderAcceptsTokenEmbeddingsOutput(t *testing.T) {
+	e, err := LoadEmbedder(minilmDir(t, 0, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := e.Embed([]string{"hello world"})
+	g := e.session.graph
+	g.Nodes[len(g.Nodes)-1].Out = []string{"token_embeddings"}
+	g.Outputs = []string{"token_embeddings"}
+	e.session, err = NewSession(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.Embed([]string{"hello world"})
+	if err != nil || !closeTo(got[0], want[0]) {
+		t.Fatalf("the sentence-transformers output name must work too: %v %v", got, err)
+	}
+}
+
+func TestEmbedderReportsAFailingModel(t *testing.T) {
+	e, err := LoadEmbedder(minilmDir(t, 0, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.session, _ = NewSession(&Graph{
+		Inputs:  []string{"input_ids", "attention_mask", "token_type_ids"},
+		Outputs: []string{"last_hidden_state"},
+		Nodes:   []*Node{{Op: "Gather", In: []string{"input_ids", "input_ids"}, Out: []string{"last_hidden_state"}}},
+	})
+	if _, err := e.Embed([]string{"hello"}); err == nil {
+		t.Fatal("a failing model must surface")
 	}
 }
 

@@ -179,12 +179,48 @@ func (s *Session) Run(inputs map[string]*Tensor) (map[string]*Tensor, error) {
 	return res, nil
 }
 
+// nodeUses lists the value names a node reads: its inputs and, for nodes with subgraphs, every
+// name the subgraphs read, since those may come from the enclosing graph.
+func nodeUses(n *Node) []string {
+	var uses []string
+	for _, name := range n.In {
+		if name != "" {
+			uses = append(uses, name)
+		}
+	}
+	for _, a := range n.Attr {
+		if a.G != nil {
+			for _, inner := range a.G.Nodes {
+				uses = append(uses, nodeUses(inner)...)
+			}
+			uses = append(uses, a.G.Outputs...)
+		}
+	}
+	return uses
+}
+
+// lastUses maps every value name to the index of the last node that reads it.
+func lastUses(g *Graph) map[string]int {
+	last := map[string]int{}
+	for i, n := range g.Nodes {
+		for _, name := range nodeUses(n) {
+			last[name] = i
+		}
+	}
+	return last
+}
+
 func runGraph(g *Graph, parent *scope) ([]*Tensor, error) {
 	sc := &scope{vals: make(map[string]*Tensor, len(g.Nodes)), consts: g.Initializers, parent: parent}
 	if parent != nil {
 		sc.prof = parent.prof
 	}
-	for _, n := range g.Nodes {
+	last := lastUses(g)
+	isOutput := make(map[string]bool, len(g.Outputs))
+	for _, name := range g.Outputs {
+		isOutput[name] = true
+	}
+	for idx, n := range g.Nodes {
 		ctx := &opCtx{node: n, in: make([]*Tensor, len(n.In)), scope: sc}
 		for i, name := range n.In {
 			if name == "" {
@@ -208,8 +244,13 @@ func runGraph(g *Graph, parent *scope) ([]*Tensor, error) {
 			return nil, fmt.Errorf("node %q (%s): %w", n.Name, n.Op, err)
 		}
 		for i, name := range n.Out {
-			if name != "" && i < len(outs) && outs[i] != nil {
+			if _, used := last[name]; name != "" && i < len(outs) && outs[i] != nil && (used || isOutput[name]) {
 				sc.vals[name] = outs[i]
+			}
+		}
+		for _, name := range nodeUses(n) {
+			if last[name] == idx && !isOutput[name] {
+				delete(sc.vals, name)
 			}
 		}
 	}

@@ -58,6 +58,16 @@ func cat(parts ...[]byte) []byte {
 	return out
 }
 
+// TensorExternalData is a tensor whose bytes are stored in another file, described by key and
+// value pairs such as location, offset and length.
+func TensorExternalData(name string, dtype int, dims []int64, entries [][2]string) []byte {
+	b := tensorHeader(name, dtype, dims)
+	for _, e := range entries {
+		b = append(b, BytesField(13, cat(StringField(1, e[0]), StringField(2, e[1])))...)
+	}
+	return append(b, VarintField(14, 1)...)
+}
+
 func tensorHeader(name string, dtype int, dims []int64) []byte {
 	return cat(PackedVarints(1, dims), VarintField(2, uint64(dtype)), StringField(8, name))
 }

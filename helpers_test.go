@@ -2,6 +2,7 @@ package onnxnlp
 
 import (
 	"math"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -113,3 +114,5 @@ func iota32(n int) []float32 {
 	}
 	return out
 }
+
+func writeFile(path, content string) error { return os.WriteFile(path, []byte(content), 0o644) }

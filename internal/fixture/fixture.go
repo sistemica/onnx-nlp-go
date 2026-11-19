@@ -60,8 +60,10 @@ func WriteGLiNER(dir string) error {
 	}
 	specials := map[string]int{"[SEP_STRUCT]": 20, "[SEP_TEXT]": 21, "[P]": 22, "[C]": 23, "[E]": 24, "[R]": 25, "[L]": 26, "[EXAMPLE]": 27, "[OUTPUT]": 28, "[DESCRIPTION]": 29}
 	if err := writeJSON(dir, "tokenizer.json", map[string]any{
-		"added_tokens": []map[string]any{{"id": 0, "content": "[PAD]"}},
-		"model":        map[string]any{"type": "Unigram", "unk_id": 3, "vocab": vocab},
+		"added_tokens":  []map[string]any{{"id": 0, "content": "[PAD]"}},
+		"model":         map[string]any{"type": "Unigram", "unk_id": 3, "vocab": vocab},
+		"normalizer":    unigramNormalizer,
+		"pre_tokenizer": map[string]any{"type": "Metaspace", "replacement": "▁", "prepend_scheme": "always", "split": true},
 	}); err != nil {
 		return err
 	}
@@ -135,8 +137,10 @@ func WriteGLiREL(dir string, scores [][]float32) error {
 	}
 	special := map[string]int{"[CLS]": 1, "[SEP]": 2, "[REL]": 20}
 	if err := writeJSON(dir, "tokenizer.json", map[string]any{
-		"added_tokens": []map[string]any{{"id": 2, "content": "[SEP]"}, {"id": 20, "content": "[REL]"}},
-		"model":        map[string]any{"type": "Unigram", "unk_id": 3, "vocab": vocab},
+		"added_tokens":  []map[string]any{{"id": 2, "content": "[SEP]"}, {"id": 20, "content": "[REL]"}},
+		"model":         map[string]any{"type": "Unigram", "unk_id": 3, "vocab": vocab},
+		"normalizer":    unigramNormalizer,
+		"pre_tokenizer": map[string]any{"type": "Metaspace", "replacement": "▁", "prepend_scheme": "always", "split": true},
 	}); err != nil {
 		return err
 	}
@@ -158,4 +162,51 @@ func WriteGLiREL(dir string, scores [][]float32) error {
 		[][]byte{pb.Node("Constant", nil, []string{"scores"}, pb.AttrTensor("value", pb.TensorFloats("", []int64{int64(len(scores)), int64(cols)}, flat)))},
 		nil, []string{"prompt_rep", "word_rep", "span_idx", "head_ids", "tail_ids"}, []string{"scores"}))
 	return write(dir, "onnx/head.onnx", head)
+}
+
+var unigramNormalizer = map[string]any{"type": "Sequence", "normalizers": []map[string]any{
+	{"type": "Replace", "pattern": map[string]string{"Regex": `\s{2,}|[\n\r\t]`}, "content": " "},
+	{"type": "NFC"},
+	{"type": "Strip", "strip_left": false, "strip_right": true},
+}}
+
+// RerankerWeights returns the deterministic [Hidden, logits] projection of the reranker fixture.
+func RerankerWeights(logits int) []float32 {
+	w := make([]float32, Hidden*logits)
+	for i := range w {
+		w[i] = float32((i*5+1)%7-3) / 3
+	}
+	return w
+}
+
+// WriteReranker writes a cross-encoder directory whose model averages the token embeddings of a
+// pair, ignoring padding, and projects them to the given number of logits. The WordPiece tokenizer is that of
+// WriteMiniLM.
+func WriteReranker(dir string, logits int, tokenTypes bool) error {
+	if err := WriteMiniLM(dir, 0, false); err != nil {
+		return err
+	}
+	inputs := []string{"input_ids", "attention_mask"}
+	if tokenTypes {
+		inputs = append(inputs, "token_type_ids")
+	}
+	g := pb.Graph(
+		[][]byte{
+			pb.Node("Gather", []string{"table", "input_ids"}, []string{"embedded"}, pb.AttrInt("axis", 0)),
+			pb.Node("Cast", []string{"attention_mask"}, []string{"mask"}, pb.AttrInt("to", 1)),
+			pb.Node("Unsqueeze", []string{"mask"}, []string{"mask3"}, pb.AttrInts("axes", 2)),
+			pb.Node("Mul", []string{"embedded", "mask3"}, []string{"masked"}),
+			pb.Node("ReduceSum", []string{"masked"}, []string{"sums"}, pb.AttrInts("axes", 1), pb.AttrInt("keepdims", 0)),
+			pb.Node("ReduceSum", []string{"mask"}, []string{"count"}, pb.AttrInts("axes", 1), pb.AttrInt("keepdims", 1)),
+			pb.Node("Div", []string{"sums", "count"}, []string{"pooled"}),
+			pb.Node("MatMul", []string{"pooled", "w"}, []string{"logits"}),
+		},
+		[][]byte{
+			pb.TensorFloats("table", []int64{int64(len(MiniLMVocab)), Hidden}, EmbeddingTable(len(MiniLMVocab))),
+			pb.TensorFloats("w", []int64{Hidden, int64(logits)}, RerankerWeights(logits)),
+		},
+		append([]string{"table", "w"}, inputs...),
+		[]string{"logits"},
+	)
+	return write(dir, "onnx/model.onnx", pb.Model(g))
 }

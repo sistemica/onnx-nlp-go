@@ -126,11 +126,11 @@ func opSqueeze(c *opCtx) ([]*Tensor, error) {
 	}
 	x := c.in[0]
 	drop := make([]bool, len(x.Shape))
-	if len(c.in) > 1 && c.in[1] != nil {
-		axes, err := intList(c.in[1])
-		if err != nil {
-			return nil, err
-		}
+	axes, given, err := axesArgument(c)
+	if err != nil {
+		return nil, err
+	}
+	if given {
 		for _, a := range axes {
 			a, err := normAxis(a, len(x.Shape))
 			if err != nil {
@@ -152,14 +152,33 @@ func opSqueeze(c *opCtx) ([]*Tensor, error) {
 	return []*Tensor{x.withShape(shape)}, nil
 }
 
+// axesArgument returns the axes of Squeeze and Unsqueeze, which newer opsets pass as the second
+// input and older ones as the axes attribute.
+func axesArgument(c *opCtx) (axes []int, given bool, err error) {
+	if len(c.in) > 1 && c.in[1] != nil {
+		axes, err = intList(c.in[1])
+		return axes, err == nil, err
+	}
+	if a, ok := c.node.Ints("axes"); ok {
+		for _, v := range a {
+			axes = append(axes, int(v))
+		}
+		return axes, true, nil
+	}
+	return nil, false, nil
+}
+
 func opUnsqueeze(c *opCtx) ([]*Tensor, error) {
-	if err := c.need(2); err != nil {
+	if err := c.need(1); err != nil {
 		return nil, err
 	}
 	x := c.in[0]
-	axes, err := intList(c.in[1])
+	axes, given, err := axesArgument(c)
 	if err != nil {
 		return nil, err
+	}
+	if !given {
+		return nil, fmt.Errorf("Unsqueeze needs axes as a second input or an attribute")
 	}
 	rank := len(x.Shape) + len(axes)
 	add := make([]bool, rank)

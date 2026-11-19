@@ -122,6 +122,10 @@ func TestUnaryMath(t *testing.T) {
 	wantF(t, run1(t, "Log", nil, fT([]int{2}, 1, float32(math.E))), []int{2}, 0, 1)
 	wantF(t, run1(t, "Erf", nil, fT([]int{3}, 0, 1, -1)), []int{3}, 0, 0.8427008, -0.8427008)
 	wantF(t, run1(t, "Sigmoid", nil, fT([]int{2}, 0, 100)), []int{2}, 0.5, 1)
+	wantF(t, run1(t, "Tanh", nil, fT([]int{3}, 0, 20, -20)), []int{3}, 0, 1, -1)
+	if got := run1(t, "Tanh", nil, fT([]int{1}, 0.5)); math.Abs(float64(got.F[0])-math.Tanh(0.5)) > 1e-6 {
+		t.Fatalf("tanh(0.5) = %v", got.F[0])
+	}
 	wantI(t, run1(t, "Abs", nil, iT([]int{2}, -3, 3)), []int{2}, 3, 3)
 	wantI(t, run1(t, "Neg", nil, iT([]int{2}, -3, 3)), []int{2}, 3, -3)
 	wantI(t, run1(t, "Sign", nil, iT([]int{3}, -3, 0, 3)), []int{3}, -1, 0, 1)

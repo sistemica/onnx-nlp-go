@@ -2,7 +2,7 @@
 
 package onnxnlp
 
-const (
+var (
 	useAVX2   = false
 	useAVX512 = false
 )

@@ -1,6 +1,10 @@
 package onnxnlp
 
-import "math/rand/v2"
+import (
+	"math"
+	"math/rand/v2"
+	"testing"
+)
 
 func naiveGemm(a, b []float32, m, k, n int) []float32 {
 	out := make([]float32, m*n)
@@ -22,4 +26,13 @@ func randomSlice(rng *rand.Rand, n int) []float32 {
 		s[i] = float32(rng.NormFloat64())
 	}
 	return s
+}
+
+func closeSlices(t *testing.T, got, want []float32) {
+	t.Helper()
+	for i := range want {
+		if math.Abs(float64(got[i]-want[i])) > 1e-4*(1+math.Abs(float64(want[i]))) {
+			t.Fatalf("element %d: got %v, want %v", i, got[i], want[i])
+		}
+	}
 }

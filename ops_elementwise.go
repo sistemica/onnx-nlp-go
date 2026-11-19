@@ -326,6 +326,8 @@ func erf32(x float32) float32 {
 	return x * num / den
 }
 
+func tanh32(x float32) float32 { return float32(math.Tanh(float64(x))) }
+
 func sigmoid32(x float32) float32 { return float32(1 / (1 + math.Exp(-float64(x)))) }
 
 func opErf(c *opCtx) ([]*Tensor, error) {

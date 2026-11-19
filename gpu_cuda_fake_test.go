@@ -3,7 +3,6 @@
 package onnxnlp
 
 import (
-	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -110,15 +109,6 @@ func (f *fakeDriver) api() *cudaAPI {
 func fakeJob(rng *rand.Rand, m, k, n int, static bool) (gemmJob, []float32) {
 	a, b := randomSlice(rng, m*k), randomSlice(rng, k*n)
 	return gemmJob{out: make([]float32, m*n), a: a, b: b, m: m, k: k, n: n, bStatic: static}, naiveGemm(a, b, m, k, n)
-}
-
-func closeSlices(t *testing.T, got, want []float32) {
-	t.Helper()
-	for i := range want {
-		if math.Abs(float64(got[i]-want[i])) > 1e-4*(1+math.Abs(float64(want[i]))) {
-			t.Fatalf("element %d: got %v, want %v", i, got[i], want[i])
-		}
-	}
 }
 
 func TestFakeDriverGemmUsesColumnMajorConvention(t *testing.T) {

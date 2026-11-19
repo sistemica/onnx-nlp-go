@@ -59,6 +59,21 @@ func TestGLiRELWriterReportsFailures(t *testing.T) {
 	}
 }
 
+func TestRerankerWriterReportsFailures(t *testing.T) {
+	for _, blocked := range []string{"tokenizer.json", "onnx/model.onnx"} {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, blocked), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteReranker(dir, 1, true); err == nil {
+			t.Errorf("blocking %s did not fail WriteReranker", blocked)
+		}
+	}
+	if err := WriteReranker(t.TempDir(), 2, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWritersReportUnusableDirectories(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "occupied")

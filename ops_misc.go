@@ -360,6 +360,7 @@ func init() {
 		"ScatterND":       opScatterND,
 		"Shape":           opShape,
 		"Sigmoid":         unary(sigmoid32, nil),
+		"Tanh":            unary(tanh32, nil),
 		"Sign":            unary(sign[float32], sign[int64]),
 		"Slice":           opSlice,
 		"Softmax":         opSoftmax,

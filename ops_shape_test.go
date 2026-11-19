@@ -55,7 +55,10 @@ func TestSqueezeUnsqueeze(t *testing.T) {
 	wantF(t, run1(t, "Unsqueeze", nil, y, iT([]int{2}, 0, -1)), []int{1, 2, 1}, 1, 2)
 	mustFail(t, "Unsqueeze", nil, "out of range", y, iT([]int{1}, 9))
 	mustFail(t, "Unsqueeze", nil, "expected integer tensor", y, fT([]int{1}, 0))
-	mustFail(t, "Unsqueeze", nil, "at least 2 inputs", y)
+	mustFail(t, "Unsqueeze", nil, "needs axes", y)
+	mustFail(t, "Unsqueeze", nil, "at least 1 inputs")
+	wantF(t, run1(t, "Unsqueeze", map[string]any{"axes": []int64{0, 2}}, y), []int{1, 2, 1}, 1, 2)
+	wantF(t, run1(t, "Squeeze", map[string]any{"axes": []int64{0}}, x), []int{3, 1}, 1, 2, 3)
 }
 
 func TestSlice(t *testing.T) {

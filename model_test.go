@@ -1,10 +1,12 @@
 package onnxnlp
 
 import (
+	"encoding/binary"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sistemica/onnx-nlp-go/internal/pb"
@@ -204,5 +206,83 @@ func TestParseGraphFile(t *testing.T) {
 	os.WriteFile(path, []byte{0x80}, 0o644)
 	if _, err := Load(path); err == nil {
 		t.Fatal("corrupt file must fail")
+	}
+}
+
+func floatBytes(vals ...float32) []byte {
+	var b []byte
+	for _, v := range vals {
+		b = binary.LittleEndian.AppendUint32(b, math.Float32bits(v))
+	}
+	return b
+}
+
+func externalModel(t *testing.T, dir string, tensors ...[]byte) string {
+	t.Helper()
+	g := pb.Graph(
+		[][]byte{pb.Node("Add", []string{"a", "b"}, []string{"y"})},
+		tensors, []string{"a", "b"}, []string{"y"},
+	)
+	path := filepath.Join(dir, "model.onnx")
+	if err := os.WriteFile(path, pb.Model(g), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestExternalTensorDataIsReadFromTheModelDirectory(t *testing.T) {
+	dir := t.TempDir()
+	data := append(floatBytes(1, 2, 3, 4), floatBytes(10, 20)...)
+	if err := os.WriteFile(filepath.Join(dir, "weights.bin"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := externalModel(t, dir,
+		pb.TensorExternalData("a", pb.Float, []int64{2, 2}, [][2]string{{"location", "weights.bin"}, {"offset", "0"}, {"length", "16"}}),
+		pb.TensorExternalData("b", pb.Float, []int64{2}, [][2]string{{"location", "weights.bin"}, {"offset", "16"}}),
+	)
+	g, err := ParseGraphFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantF(t, g.Initializers["a"], []int{2, 2}, 1, 2, 3, 4)
+	wantF(t, g.Initializers["b"], []int{2}, 10, 20)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load must resolve external data as well: %v", err)
+	}
+}
+
+func TestExternalTensorDataErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "weights.bin"), floatBytes(1, 2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries := func(kv ...string) [][2]string {
+		var out [][2]string
+		for i := 0; i+1 < len(kv); i += 2 {
+			out = append(out, [2]string{kv[i], kv[i+1]})
+		}
+		return out
+	}
+	for name, kv := range map[string][]string{
+		"absolute location": {"location", "/etc/passwd"},
+		"escaping location": {"location", "../weights.bin"},
+		"missing file":      {"location", "nothing.bin"},
+		"negative offset":   {"location", "weights.bin", "offset", "-4"},
+		"bad offset":        {"location", "weights.bin", "offset", "x"},
+		"past the end":      {"location", "weights.bin", "offset", "4", "length", "40"},
+		"no location":       {"offset", "0"},
+	} {
+		path := externalModel(t, dir, pb.TensorExternalData("a", pb.Float, []int64{2}, entries(kv...)),
+			pb.TensorFloats("b", []int64{2}, []float32{1, 2}))
+		if _, err := ParseGraphFile(path); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	tensor := pb.TensorExternalData("a", pb.Float, []int64{2}, entries("location", "weights.bin"))
+	if _, err := ParseModel(pb.Model(pb.Graph(nil, [][]byte{tensor}, nil, nil))); err == nil || !strings.Contains(err.Error(), "file") {
+		t.Errorf("a model parsed from memory cannot resolve external data: %v", err)
+	}
+	if _, err := ParseGraphFile(externalModel(t, dir, tensor, pb.TensorFloats("b", []int64{2}, []float32{1, 2}))); err != nil {
+		t.Errorf("without offset and length the whole file is read: %v", err)
 	}
 }

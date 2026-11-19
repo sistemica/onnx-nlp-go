@@ -21,6 +21,7 @@ type WordPiece struct {
 	cleanText    bool
 	chineseChars bool
 	cls, sep     int
+	post         *postProcessor
 }
 
 func LoadWordPiece(path string) (*WordPiece, error) {
@@ -72,15 +73,31 @@ func LoadWordPiece(path string) (*WordPiece, error) {
 	if _, ok := w.vocab[w.unk]; !ok {
 		return nil, fmt.Errorf("wordpiece: vocabulary has no %s", w.unk)
 	}
+	cls, sep := templatePiece{special: []int{w.cls}}, templatePiece{special: []int{w.sep}}
+	w.post = &postProcessor{
+		single: []templatePiece{cls, {}, sep},
+		pair:   []templatePiece{cls, {}, sep, {second: true, typeID: 1}, {special: []int{w.sep}, typeID: 1}},
+	}
 	return w, nil
+}
+
+// EncodePair returns [CLS] a [SEP] b [SEP] with segment ids 0 and 1, truncated to maxLen ids in
+// total when maxLen > 0 by removing tokens from the longer text first.
+func (w *WordPiece) EncodePair(a, b string, maxLen int) (ids, segments []int) {
+	return w.post.encode(w.tokens(a), w.tokens(b), true, maxLen)
+}
+
+func (w *WordPiece) tokens(text string) []int {
+	var ids []int
+	for _, word := range w.preTokenize(w.normalize(text)) {
+		ids = append(ids, w.wordPieces(word)...)
+	}
+	return ids
 }
 
 // Encode returns [CLS] ids [SEP], truncated to maxLen ids in total when maxLen > 0.
 func (w *WordPiece) Encode(text string, maxLen int) []int {
-	ids := []int{w.cls}
-	for _, word := range w.preTokenize(w.normalize(text)) {
-		ids = append(ids, w.wordPieces(word)...)
-	}
+	ids := append([]int{w.cls}, w.tokens(text)...)
 	if maxLen > 0 && len(ids) > maxLen-1 {
 		ids = ids[:max(maxLen-1, 1)]
 	}
@@ -98,8 +115,11 @@ func isChineseChar(r rune) bool {
 	return false
 }
 
+// isBertControl is what clean_text removes: assigned control, format, private-use and surrogate
+// characters, except tab, newline and carriage return, which count as whitespace. Unassigned code
+// points are kept, as the tokenizers library has no category for them.
 func isBertControl(r rune) bool {
-	return !unicode.IsSpace(r) && !unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z)
+	return r != '\t' && r != '\n' && r != '\r' && unicode.In(r, unicode.Cc, unicode.Cf, unicode.Co, unicode.Cs)
 }
 
 func (w *WordPiece) normalize(text string) string {

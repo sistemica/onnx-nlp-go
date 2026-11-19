@@ -31,6 +31,11 @@ func registerBackend(name string, open func() (gemmDevice, error)) {
 	backends = append(backends, backend{name, open})
 }
 
+// registerPreferredBackend adds a backend that is tried before all others.
+func registerPreferredBackend(name string, open func() (gemmDevice, error)) {
+	backends = append([]backend{{name, open}}, backends...)
+}
+
 var accel struct {
 	mu       sync.Mutex
 	probed   bool
@@ -58,6 +63,9 @@ func activeDevice() (gemmDevice, int) {
 		}
 		if !gpuDisabledByEnv() {
 			accel.dev = openFirstBackend(os.Getenv("ONNXNLP_GPU_BACKEND"))
+			if own, ok := accel.dev.(interface{ MinFlops() int }); ok && os.Getenv("ONNXNLP_GPU_MIN_FLOPS") == "" {
+				accel.minFlops = own.MinFlops()
+			}
 		}
 	}
 	return accel.dev, accel.minFlops

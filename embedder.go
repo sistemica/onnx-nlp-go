@@ -7,17 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"unicode"
 )
 
 const embedBatchSize = 32
 
-// Embedder is a sentence-transformers model exported to ONNX with a WordPiece
-// tokenizer, mean pooling and optional L2 normalization.
+// Embedder is a sentence-transformers model exported to ONNX with a WordPiece or Unigram
+// tokenizer, mean or CLS pooling and optional L2 normalization.
 type Embedder struct {
-	tok       *WordPiece
+	enc       *sentenceEncoder
 	session   *Session
 	maxLen    int
 	normalize bool
+	cls       bool
 }
 
 // LoadEmbedder loads a sentence-transformers directory such as all-MiniLM-L6-v2
@@ -25,12 +28,13 @@ type Embedder struct {
 func LoadEmbedder(dir string) (*Embedder, error) {
 	var pooling struct {
 		Mean bool `json:"pooling_mode_mean_tokens"`
+		CLS  bool `json:"pooling_mode_cls_token"`
 	}
 	if err := readJSON(filepath.Join(dir, "1_Pooling", "config.json"), &pooling); err != nil {
 		return nil, err
 	}
-	if !pooling.Mean {
-		return nil, fmt.Errorf("embedder: only mean pooling is supported")
+	if pooling.Mean == pooling.CLS {
+		return nil, fmt.Errorf("embedder: only mean pooling or CLS pooling is supported")
 	}
 	var modules []struct {
 		Type string `json:"type"`
@@ -38,7 +42,7 @@ func LoadEmbedder(dir string) (*Embedder, error) {
 	if err := readJSON(filepath.Join(dir, "modules.json"), &modules); err != nil {
 		return nil, err
 	}
-	e := &Embedder{maxLen: 256}
+	e := &Embedder{maxLen: 256, cls: pooling.CLS}
 	for _, m := range modules {
 		if m.Type == "sentence_transformers.models.Normalize" {
 			e.normalize = true
@@ -51,13 +55,19 @@ func LoadEmbedder(dir string) (*Embedder, error) {
 		e.maxLen = cfg.MaxSeqLength
 	}
 	var err error
-	if e.tok, err = LoadWordPiece(filepath.Join(dir, "tokenizer.json")); err != nil {
+	if e.enc, err = loadSentenceEncoder(filepath.Join(dir, "tokenizer.json")); err != nil {
 		return nil, err
 	}
 	if e.session, err = Load(filepath.Join(dir, "onnx", "model.onnx")); err != nil {
 		return nil, err
 	}
 	return e, nil
+}
+
+// trimLikePython removes what Python's str.strip removes. sentence-transformers applies it to
+// every text before tokenizing.
+func trimLikePython(s string) string {
+	return strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f) })
 }
 
 func readJSON(path string, v any) error {
@@ -73,13 +83,12 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 	ids := make([][]int, len(texts))
 	order := make([]int, len(texts))
 	for i, t := range texts {
-		ids[i] = e.tok.Encode(t, e.maxLen)
+		ids[i] = e.enc.single(trimLikePython(t), e.maxLen)
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool { return len(ids[order[a]]) > len(ids[order[b]]) })
 	out := make([][]float32, len(texts))
-	for lo := 0; lo < len(order); lo += embedBatchSize {
-		batch := order[lo:min(lo+embedBatchSize, len(order))]
+	for _, batch := range planBatches(order, func(i int) int { return len(ids[i]) }, embedBatchSize) {
 		vecs, err := e.embedBatch(ids, batch)
 		if err != nil {
 			return nil, err
@@ -92,47 +101,42 @@ func (e *Embedder) Embed(texts []string) ([][]float32, error) {
 }
 
 func (e *Embedder) embedBatch(ids [][]int, batch []int) ([][]float32, error) {
-	width := 0
-	for _, idx := range batch {
-		width = max(width, len(ids[idx]))
+	inputs, mask, width, err := encoderInputs(e.session.InputNames(), ids, nil, batch)
+	if err != nil {
+		return nil, err
 	}
-	n := len(batch)
-	inputIDs, mask := zeros(Int64, []int{n, width}), zeros(Int64, []int{n, width})
-	for r, idx := range batch {
-		for c, id := range ids[idx] {
-			inputIDs.I[r*width+c] = int64(id)
-			mask.I[r*width+c] = 1
-		}
-	}
-	res, err := e.session.Run(map[string]*Tensor{
-		"input_ids":      inputIDs,
-		"attention_mask": mask,
-		"token_type_ids": zeros(Int64, []int{n, width}),
-	})
+	res, err := e.session.Run(inputs)
 	if err != nil {
 		return nil, err
 	}
 	hidden := res["last_hidden_state"]
+	if hidden == nil {
+		hidden = res["token_embeddings"]
+	}
 	if hidden == nil || len(hidden.Shape) != 3 {
-		return nil, fmt.Errorf("embedder: model has no last_hidden_state output")
+		return nil, fmt.Errorf("embedder: model has no last_hidden_state or token_embeddings output")
 	}
 	dim := hidden.Shape[2]
-	vecs := make([][]float32, n)
+	vecs := make([][]float32, len(batch))
 	for r := range batch {
 		v := make([]float32, dim)
-		count := 0
-		for c := 0; c < width; c++ {
-			if mask.I[r*width+c] == 0 {
-				continue
+		if e.cls {
+			copy(v, hidden.F[r*width*dim:r*width*dim+dim])
+		} else {
+			count := 0
+			for c := 0; c < width; c++ {
+				if mask.I[r*width+c] == 0 {
+					continue
+				}
+				count++
+				row := hidden.F[(r*width+c)*dim : (r*width+c+1)*dim]
+				for d := range v {
+					v[d] += row[d]
+				}
 			}
-			count++
-			row := hidden.F[(r*width+c)*dim : (r*width+c+1)*dim]
 			for d := range v {
-				v[d] += row[d]
+				v[d] /= float32(max(count, 1))
 			}
-		}
-		for d := range v {
-			v[d] /= float32(max(count, 1))
 		}
 		if e.normalize {
 			l2Normalize(v)

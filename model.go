@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+	"strconv"
 )
 
 type Attr struct {
@@ -63,22 +65,44 @@ func (n *Node) Ints(name string) ([]int64, bool) {
 	return a.Ints, true
 }
 
+// ParseGraphFile reads a model file. Tensors stored in external data files are read from the
+// directory of the model.
 func ParseGraphFile(path string) (*Graph, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return ParseModel(b)
+	p := &parser{dir: filepath.Dir(path)}
+	defer p.close()
+	return p.parseModel(b)
 }
 
+// ParseModel decodes a model held in memory; it cannot resolve external data.
 func ParseModel(b []byte) (*Graph, error) {
+	return (&parser{}).parseModel(b)
+}
+
+// parser decodes model protobufs. dir is where external tensor data is looked up; the files it
+// opens are kept until close.
+type parser struct {
+	dir   string
+	files map[string]*os.File
+}
+
+func (p *parser) close() {
+	for _, f := range p.files {
+		f.Close()
+	}
+}
+
+func (p *parser) parseModel(b []byte) (*Graph, error) {
 	var g *Graph
 	err := forEachField(b, func(f field) error {
 		if f.num != 7 {
 			return nil
 		}
 		var err error
-		g, err = parseGraph(f.data)
+		g, err = p.parseGraph(f.data)
 		return err
 	})
 	if err != nil {
@@ -90,13 +114,13 @@ func ParseModel(b []byte) (*Graph, error) {
 	return g, nil
 }
 
-func parseGraph(b []byte) (*Graph, error) {
+func (p *parser) parseGraph(b []byte) (*Graph, error) {
 	g := &Graph{Initializers: map[string]*Tensor{}}
 	var inputs []string
 	err := forEachField(b, func(f field) error {
 		switch f.num {
 		case 1:
-			n, err := parseNode(f.data)
+			n, err := p.parseNode(f.data)
 			if err != nil {
 				return err
 			}
@@ -104,7 +128,7 @@ func parseGraph(b []byte) (*Graph, error) {
 		case 2:
 			g.Name = string(f.data)
 		case 5:
-			name, t, err := parseTensor(f.data)
+			name, t, err := p.parseTensor(f.data)
 			if err != nil {
 				return err
 			}
@@ -140,7 +164,7 @@ func valueInfoName(b []byte) string {
 	return name
 }
 
-func parseNode(b []byte) (*Node, error) {
+func (p *parser) parseNode(b []byte) (*Node, error) {
 	n := &Node{Attr: map[string]*Attr{}}
 	err := forEachField(b, func(f field) error {
 		switch f.num {
@@ -153,7 +177,7 @@ func parseNode(b []byte) (*Node, error) {
 		case 4:
 			n.Op = string(f.data)
 		case 5:
-			name, a, err := parseAttr(f.data)
+			name, a, err := p.parseAttr(f.data)
 			if err != nil {
 				return err
 			}
@@ -166,7 +190,7 @@ func parseNode(b []byte) (*Node, error) {
 	return n, err
 }
 
-func parseAttr(b []byte) (string, *Attr, error) {
+func (p *parser) parseAttr(b []byte) (string, *Attr, error) {
 	a := &Attr{}
 	var name string
 	err := forEachField(b, func(f field) error {
@@ -181,9 +205,9 @@ func parseAttr(b []byte) (string, *Attr, error) {
 		case 4:
 			a.S = string(f.data)
 		case 5:
-			_, a.T, err = parseTensor(f.data)
+			_, a.T, err = p.parseTensor(f.data)
 		case 6:
-			a.G, err = parseGraph(f.data)
+			a.G, err = p.parseGraph(f.data)
 		case 7:
 			a.Floats = appendFloat32s(a.Floats, f)
 		case 8:
@@ -201,7 +225,7 @@ const (
 	onnxBool  = 9
 )
 
-func parseTensor(b []byte) (string, *Tensor, error) {
+func (p *parser) parseTensor(b []byte) (string, *Tensor, error) {
 	var (
 		name     string
 		dims     []int64
@@ -209,7 +233,7 @@ func parseTensor(b []byte) (string, *Tensor, error) {
 		raw      []byte
 		floats   []float32
 		ints     []int64
-		external bool
+		external map[string]string
 	)
 	err := forEachField(b, func(f field) error {
 		var err error
@@ -227,15 +251,20 @@ func parseTensor(b []byte) (string, *Tensor, error) {
 		case 9:
 			raw = f.data
 		case 13:
-			external = true
+			if external == nil {
+				external = map[string]string{}
+			}
+			err = externalEntry(f.data, external)
 		}
 		return err
 	})
 	if err != nil {
 		return "", nil, err
 	}
-	if external {
-		return "", nil, fmt.Errorf("onnx: tensor %q uses external data", name)
+	if external != nil {
+		if raw, err = p.readExternal(name, external); err != nil {
+			return "", nil, err
+		}
 	}
 	shape := make([]int, len(dims))
 	for i, d := range dims {
@@ -294,4 +323,59 @@ func tensorFromProto(dtype int64, shape []int, n int, raw []byte, floats []float
 		return t, nil
 	}
 	return nil, fmt.Errorf("unsupported tensor data type %d", dtype)
+}
+
+// externalEntry adds one key and value of a tensor's external_data list to entries.
+func externalEntry(b []byte, entries map[string]string) error {
+	var key, value string
+	err := forEachField(b, func(f field) error {
+		switch f.num {
+		case 1:
+			key = string(f.data)
+		case 2:
+			value = string(f.data)
+		}
+		return nil
+	})
+	entries[key] = value
+	return err
+}
+
+// readExternal returns the bytes of a tensor stored outside the model file.
+func (p *parser) readExternal(name string, entries map[string]string) ([]byte, error) {
+	location := entries["location"]
+	if p.dir == "" {
+		return nil, fmt.Errorf("onnx: tensor %q uses external data, which needs the model to be loaded from a file", name)
+	}
+	if !filepath.IsLocal(location) {
+		return nil, fmt.Errorf("onnx: tensor %q has external data location %q outside the model directory", name, location)
+	}
+	f := p.files[location]
+	if f == nil {
+		var err error
+		if f, err = os.Open(filepath.Join(p.dir, location)); err != nil {
+			return nil, fmt.Errorf("onnx: tensor %q: %w", name, err)
+		}
+		if p.files == nil {
+			p.files = map[string]*os.File{}
+		}
+		p.files[location] = f
+	}
+	offset, err := strconv.ParseInt(entries["offset"], 10, 64)
+	if entries["offset"] != "" && (err != nil || offset < 0) {
+		return nil, fmt.Errorf("onnx: tensor %q has external data offset %q", name, entries["offset"])
+	}
+	size, err := strconv.ParseInt(entries["length"], 10, 64)
+	if err != nil || size < 0 {
+		info, statErr := f.Stat()
+		if statErr != nil {
+			return nil, statErr
+		}
+		size = info.Size() - offset
+	}
+	buf := make([]byte, size)
+	if _, err := f.ReadAt(buf, offset); err != nil {
+		return nil, fmt.Errorf("onnx: tensor %q: reading external data: %w", name, err)
+	}
+	return buf, nil
 }
