@@ -69,6 +69,16 @@ var npyShape = regexp.MustCompile(`'shape': \(([^)]*)\)`)
 
 func readNpy(t testing.TB, path string) ([]float32, []int) {
 	t.Helper()
+	wide, shape := readNpyAny(t, path)
+	data := make([]float32, len(wide))
+	for i, v := range wide {
+		data[i] = float32(v)
+	}
+	return data, shape
+}
+
+func readNpyAny(t testing.TB, path string) ([]float64, []int) {
+	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -78,9 +88,7 @@ func readNpy(t testing.TB, path string) ([]float32, []int) {
 	}
 	headerLen := int(binary.LittleEndian.Uint16(b[8:10]))
 	header := string(b[10 : 10+headerLen])
-	if !strings.Contains(header, "'<f4'") || strings.Contains(header, "True") {
-		t.Fatalf("%s: unsupported npy header %q", path, header)
-	}
+	fortran := strings.Contains(header, "'fortran_order': True")
 	var shape []int
 	for _, part := range strings.Split(npyShape.FindStringSubmatch(header)[1], ",") {
 		if part = strings.TrimSpace(part); part != "" {
@@ -88,9 +96,29 @@ func readNpy(t testing.TB, path string) ([]float32, []int) {
 			shape = append(shape, n)
 		}
 	}
-	data := make([]float32, numel(shape))
+	body := b[10+headerLen:]
+	data := make([]float64, numel(shape))
 	for i := range data {
-		data[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[10+headerLen+4*i:]))
+		switch {
+		case strings.Contains(header, "'<f4'"):
+			data[i] = float64(math.Float32frombits(binary.LittleEndian.Uint32(body[4*i:])))
+		case strings.Contains(header, "'<f8'"):
+			data[i] = math.Float64frombits(binary.LittleEndian.Uint64(body[8*i:]))
+		case strings.Contains(header, "'<i8'"):
+			data[i] = float64(int64(binary.LittleEndian.Uint64(body[8*i:])))
+		default:
+			t.Fatalf("%s: unsupported dtype in %q", path, header)
+		}
+	}
+	if fortran && len(shape) == 2 {
+		rows, cols := shape[0], shape[1]
+		rowMajor := make([]float64, len(data))
+		for r := 0; r < rows; r++ {
+			for c := 0; c < cols; c++ {
+				rowMajor[r*cols+c] = data[c*rows+r]
+			}
+		}
+		data = rowMajor
 	}
 	return data, shape
 }

@@ -4,3 +4,6 @@
 *.exe
 /onnxgo
 /gliner
+.cx-index.db
+/glirel
+/bertopic

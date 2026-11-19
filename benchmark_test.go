@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func benchEnv(b *testing.B, name string) string {
@@ -209,5 +210,46 @@ func BenchmarkGLiRELExtract(b *testing.B) {
 		if _, err := g.Extract(tokens, entities, labels, 0.5, 0); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkBERTopicStages(b *testing.B) {
+	dir := os.Getenv("ONNXGO_BERTOPIC_REF")
+	if dir == "" {
+		b.Skip("ONNXGO_BERTOPIC_REF not set")
+	}
+	flat, shape := readNpy(b, filepath.Join(dir, "emb.npy"))
+	data := make([][]float32, shape[0])
+	for i := range data {
+		data[i] = flat[i*shape[1] : (i+1)*shape[1]]
+	}
+	u := DefaultUMAP()
+	var low [][]float64
+	stages := map[string]time.Duration{}
+	for i := 0; i < b.N; i++ {
+		t0 := time.Now()
+		idx, dist := cosineNeighbors(data, 15)
+		t1 := time.Now()
+		graph := pruneGraph(fuzzyGraph(idx, dist, 15), 500)
+		t2 := time.Now()
+		rng := &splitMix{u.Seed}
+		init := noisyScale(spectralInit(graph, len(data), 5, rng), rng)
+		t3 := time.Now()
+		a, bb := findAB(1, 0)
+		l := newLayout(init, graph, 500, a, bb, 5, rng)
+		l.run()
+		t4 := time.Now()
+		low = l.points()
+		labels, _, _ := HDBSCAN{MinClusterSize: 10}.Fit(low)
+		t5 := time.Now()
+		_ = describeTopics(make([]string, len(data)), renumberBySize(labels), 10, "english", nil)
+		stages["neighbours"] += t1.Sub(t0)
+		stages["fuzzy_graph"] += t2.Sub(t1)
+		stages["spectral_init"] += t3.Sub(t2)
+		stages["sgd_layout"] += t4.Sub(t3)
+		stages["hdbscan"] += t5.Sub(t4)
+	}
+	for _, name := range []string{"neighbours", "fuzzy_graph", "spectral_init", "sgd_layout", "hdbscan"} {
+		b.ReportMetric(float64(stages[name].Milliseconds())/float64(b.N), name+"_ms")
 	}
 }

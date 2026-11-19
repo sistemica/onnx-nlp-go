@@ -7,6 +7,7 @@ A pure-Go (no cgo) ONNX inference engine with three ready-made pipelines:
 | Entity extraction | `LoadGLiNER(dir).Extract(text, labels, threshold)` | GLiNER2.5 boundary export (`DanKau/gliner2.5-multi-v1-onnx`) |
 | Keyword extraction | `NewKeyBERT(LoadEmbedder(dir)).Extract(docs, opts)` | any sentence-transformers directory with `onnx/model.onnx`, mean pooling, WordPiece (default `all-MiniLM-L6-v2`) |
 | Relation extraction | `LoadGLiREL(dir).Extract(tokens, entities, labels, threshold, topK)` | GLiREL (`jackboyla/glirel-large-v0`), exported with `tools/glirel` |
+| Topic modelling | `NewBERTopic(LoadEmbedder(dir)).Fit(docs)` | BERTopic's default pipeline: sentence embeddings, UMAP, HDBSCAN, class-based TF-IDF |
 | Raw inference | `Load(path).Run(inputs)` | any ONNX model whose operators are implemented (see `ops_misc.go`) |
 
 CLI: `go run ./cmd/gliner -model DIR -labels person,company "text"`.
@@ -28,7 +29,34 @@ The model has no ONNX release, so build the export directory once (needs `torch`
 
 `cmd/glirel` is a small command-line front end. Not implemented: the optional `refine_*`, `coref` and non-`dot` scorer variants, which this checkpoint does not use.
 
-BERTopic is not implemented.
+### BERTopic
+
+```go
+topics := onnxgo.NewBERTopic(embedder) // any TextEmbedder, e.g. LoadEmbedder("all-MiniLM-L6-v2")
+topics.RemoveStopWords = true          // BERTopic keeps them by default
+model, _ := topics.Fit(docs)           // or FitEmbeddings(docs, vectors)
+for _, t := range model.Topics { fmt.Println(t.ID, t.Size, t.Words) } // topic -1 holds the outliers
+```
+
+`cmd/bertopic -model DIR -docs docs.txt -stop-words` prints the topics of a text file with one document per line. 3000 newsgroup posts take 1.3 s to reduce and cluster (the embedding is the rest).
+
+All of it is Go, including UMAP and HDBSCAN, and the stages follow umap-learn 0.6 (classic layout) and hdbscan with BERTopic's defaults (15 neighbours, 5 components, minimum distance 0, minimum topic size 10, excess-of-mass selection). `tools/bertopic/reference.py` records every stage of the Python pipeline for the model-backed tests. Checked against it:
+
+| Stage | Result |
+|---|---|
+| UMAP neighbour graph | all 61,178 edges present, weights within 4.5e-6 |
+| UMAP spectral initialisation | eigenvalues within 1e-5, eigenvectors \|cos\| = 1 with scipy's |
+| UMAP optimiser | identical to the library over the epochs that are deterministic (largest difference 7e-5); the random stream differs, so later epochs differ |
+| HDBSCAN | merge distances identical; on the library's own dendrogram, labels and strengths identical; on 5 embeddings, adjusted Rand 0.985 to 1.0 |
+| Topic words (c-TF-IDF) | scores identical to 1e-9 on 440 word positions, with and without stop words |
+| Whole pipeline | neighbour preservation 0.362 against umap-learn's 0.363; where clustering does not collapse (below) adjusted Rand 0.67 against umap-learn, which is what umap-learn gives against itself across seeds (0.65 to 0.70) |
+
+Things to know:
+
+- UMAP is random, so exactly the same topics as Python are not possible. Use `UMAP.Seed` for repeatable runs.
+- **On the 3000-post newsgroup corpus, about half of all seeds make UMAP followed by HDBSCAN return just two clusters and no outliers.** This happens with umap-learn too (19 of 40 runs from one fixed start), and Go's rate is the same (16 of 40), so it comes from the algorithm and not the port. If you get it, change the seed or `MinTopicSize`.
+- HDBSCAN on ties: many merges happen at exactly the same distance, and the order in which they are processed changes the result. The library's order comes from an unstable sort that varies by CPU, so this port uses a fixed order (by endpoints). The library's default also builds an approximate spanning tree, which this port does not; with the library's exact mode the merge distances are identical.
+- Not implemented: `transform` for new documents, topic reduction (`nr_topics`), outlier reduction, representation models other than c-TF-IDF, online and guided topic modelling.
 
 ## Speed
 
@@ -49,7 +77,7 @@ BERTopic is not implemented.
 
 `go test ./...` is self-contained: it builds tiny synthetic models and tokenizers.
 
-Model-backed tests compare against onnxruntime, Hugging Face `tokenizers`, sentence-transformers, the official `gliner2` and `keybert` packages. They run when these variables point at reference data: `ONNXGO_MODELS`, `ONNXGO_REF`, `ONNXGO_TOKGOLD`, `ONNXGO_E2E`, `ONNXGO_MINILM`, `ONNXGO_KBREF`.
+Model-backed tests compare against onnxruntime, Hugging Face `tokenizers`, sentence-transformers, the official `gliner2` and `keybert` packages. They run when these variables point at reference data: `ONNXGO_MODELS`, `ONNXGO_REF`, `ONNXGO_TOKGOLD`, `ONNXGO_E2E`, `ONNXGO_MINILM`, `ONNXGO_KBREF`, `ONNXGO_GLIREL`, `ONNXGO_GLIREL_REF`, `ONNXGO_BERTOPIC_REF`.
 
 `go test -run '^$' -bench . ` runs the benchmarks (same variables).
 
