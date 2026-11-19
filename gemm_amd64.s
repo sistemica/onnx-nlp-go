@@ -158,3 +158,152 @@ loop512:
 	VMOVUPS Z11, (AX)
 	VZEROUPPER
 	RET
+
+// func gemv16(x *float32, panel *float32, y *float32, k int)
+// y[0:16] += sum over p < k of x[p] * panel[p*16 : p*16+16]. It requires k > 0.
+TEXT ·gemv16(SB), NOSPLIT, $0-32
+	MOVQ x+0(FP), SI
+	MOVQ panel+8(FP), DI
+	MOVQ y+16(FP), DX
+	MOVQ k+24(FP), CX
+	VXORPS Y0, Y0, Y0
+	VXORPS Y1, Y1, Y1
+	VXORPS Y2, Y2, Y2
+	VXORPS Y3, Y3, Y3
+	VXORPS Y4, Y4, Y4
+	VXORPS Y5, Y5, Y5
+	VXORPS Y6, Y6, Y6
+	VXORPS Y7, Y7, Y7
+	MOVQ   CX, BX
+	SHRQ   $2, BX
+	JZ     gemv16tail
+
+gemv16loop:
+	VBROADCASTSS (SI), Y8
+	VFMADD231PS  (DI), Y8, Y0
+	VFMADD231PS  32(DI), Y8, Y1
+	VBROADCASTSS 4(SI), Y9
+	VFMADD231PS  64(DI), Y9, Y2
+	VFMADD231PS  96(DI), Y9, Y3
+	VBROADCASTSS 8(SI), Y10
+	VFMADD231PS  128(DI), Y10, Y4
+	VFMADD231PS  160(DI), Y10, Y5
+	VBROADCASTSS 12(SI), Y11
+	VFMADD231PS  192(DI), Y11, Y6
+	VFMADD231PS  224(DI), Y11, Y7
+	ADDQ         $16, SI
+	ADDQ         $256, DI
+	DECQ         BX
+	JNZ          gemv16loop
+
+gemv16tail:
+	ANDQ $3, CX
+	JZ   gemv16done
+
+gemv16tailloop:
+	VBROADCASTSS (SI), Y8
+	VFMADD231PS  (DI), Y8, Y0
+	VFMADD231PS  32(DI), Y8, Y1
+	ADDQ         $4, SI
+	ADDQ         $64, DI
+	DECQ         CX
+	JNZ          gemv16tailloop
+
+gemv16done:
+	VADDPS  Y2, Y0, Y0
+	VADDPS  Y3, Y1, Y1
+	VADDPS  Y6, Y4, Y4
+	VADDPS  Y7, Y5, Y5
+	VADDPS  Y4, Y0, Y0
+	VADDPS  Y5, Y1, Y1
+	VADDPS  (DX), Y0, Y0
+	VADDPS  32(DX), Y1, Y1
+	VMOVUPS Y0, (DX)
+	VMOVUPS Y1, 32(DX)
+	VZEROUPPER
+	RET
+
+// func gemv16bf16(x *float32, panel *uint16, y *float32, k int)
+// Like gemv16 for a panel of bfloat16 values: each is widened to float32 by placing its 16 bits in
+// the upper half of a 32-bit lane. It requires k > 0.
+TEXT ·gemv16bf16(SB), NOSPLIT, $0-32
+	MOVQ x+0(FP), SI
+	MOVQ panel+8(FP), DI
+	MOVQ y+16(FP), DX
+	MOVQ k+24(FP), CX
+	VXORPS Y0, Y0, Y0
+	VXORPS Y1, Y1, Y1
+	VXORPS Y2, Y2, Y2
+	VXORPS Y3, Y3, Y3
+	VXORPS Y4, Y4, Y4
+	VXORPS Y5, Y5, Y5
+	VXORPS Y6, Y6, Y6
+	VXORPS Y7, Y7, Y7
+	MOVQ   CX, BX
+	SHRQ   $2, BX
+	JZ     gemv16bf16tail
+
+gemv16bf16loop:
+	VBROADCASTSS (SI), Y8
+	VPMOVZXWD    (DI), Y12
+	VPMOVZXWD    16(DI), Y13
+	VPSLLD       $16, Y12, Y12
+	VPSLLD       $16, Y13, Y13
+	VFMADD231PS  Y12, Y8, Y0
+	VFMADD231PS  Y13, Y8, Y1
+	VBROADCASTSS 4(SI), Y9
+	VPMOVZXWD    32(DI), Y14
+	VPMOVZXWD    48(DI), Y15
+	VPSLLD       $16, Y14, Y14
+	VPSLLD       $16, Y15, Y15
+	VFMADD231PS  Y14, Y9, Y2
+	VFMADD231PS  Y15, Y9, Y3
+	VBROADCASTSS 8(SI), Y10
+	VPMOVZXWD    64(DI), Y12
+	VPMOVZXWD    80(DI), Y13
+	VPSLLD       $16, Y12, Y12
+	VPSLLD       $16, Y13, Y13
+	VFMADD231PS  Y12, Y10, Y4
+	VFMADD231PS  Y13, Y10, Y5
+	VBROADCASTSS 12(SI), Y11
+	VPMOVZXWD    96(DI), Y14
+	VPMOVZXWD    112(DI), Y15
+	VPSLLD       $16, Y14, Y14
+	VPSLLD       $16, Y15, Y15
+	VFMADD231PS  Y14, Y11, Y6
+	VFMADD231PS  Y15, Y11, Y7
+	ADDQ         $16, SI
+	ADDQ         $128, DI
+	DECQ         BX
+	JNZ          gemv16bf16loop
+
+gemv16bf16tail:
+	ANDQ $3, CX
+	JZ   gemv16bf16done
+
+gemv16bf16tailloop:
+	VBROADCASTSS (SI), Y8
+	VPMOVZXWD    (DI), Y12
+	VPMOVZXWD    16(DI), Y13
+	VPSLLD       $16, Y12, Y12
+	VPSLLD       $16, Y13, Y13
+	VFMADD231PS  Y12, Y8, Y0
+	VFMADD231PS  Y13, Y8, Y1
+	ADDQ         $4, SI
+	ADDQ         $32, DI
+	DECQ         CX
+	JNZ          gemv16bf16tailloop
+
+gemv16bf16done:
+	VADDPS  Y2, Y0, Y0
+	VADDPS  Y3, Y1, Y1
+	VADDPS  Y6, Y4, Y4
+	VADDPS  Y7, Y5, Y5
+	VADDPS  Y4, Y0, Y0
+	VADDPS  Y5, Y1, Y1
+	VADDPS  (DX), Y0, Y0
+	VADDPS  32(DX), Y1, Y1
+	VMOVUPS Y0, (DX)
+	VMOVUPS Y1, 32(DX)
+	VZEROUPPER
+	RET

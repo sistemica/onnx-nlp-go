@@ -1,6 +1,7 @@
 package onnxnlp
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -251,5 +252,50 @@ func BenchmarkBERTopicStages(b *testing.B) {
 	}
 	for _, name := range []string{"neighbours", "fuzzy_graph", "spectral_init", "sgd_layout", "hdbscan"} {
 		b.ReportMetric(float64(stages[name].Milliseconds())/float64(b.N), name+"_ms")
+	}
+}
+
+func BenchmarkLanguageModelDecode(b *testing.B) {
+	dir, ref := os.Getenv("ONNXNLP_LM_MODEL"), os.Getenv("ONNXNLP_LM_REF")
+	if dir == "" || ref == "" {
+		b.Skip("ONNXNLP_LM_MODEL and ONNXNLP_LM_REF not set")
+	}
+	raw, err := os.ReadFile(filepath.Join(ref, "prompt.json"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	var prompt struct {
+		IDs []int `json:"ids"`
+	}
+	if err := json.Unmarshal(raw, &prompt); err != nil {
+		b.Fatal(err)
+	}
+	m, err := LoadLanguageModel(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	cache := m.NewCache()
+	if _, err := m.Forward(prompt.IDs, cache); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		m.Forward([]int{271}, cache)
+	}
+	if os.Getenv("ONNXNLP_OPSTATS") != "" {
+		m.session.EnableProfiling()
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := m.Forward([]int{271}, cache); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	if os.Getenv("ONNXNLP_OPSTATS") != "" {
+		for i, st := range m.session.OpStats() {
+			if i < 12 {
+				b.Logf("%-22s %8.1f ms per token  (%d calls)", st.Op, float64(st.Total.Microseconds())/1000/float64(b.N), st.Calls)
+			}
+		}
 	}
 }

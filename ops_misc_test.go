@@ -142,3 +142,20 @@ func TestRound4AndSign(t *testing.T) {
 		t.Fatalf("sign: %v", got)
 	}
 }
+
+func TestTrilu(t *testing.T) {
+	x := fT([]int{2, 3}, 1, 2, 3, 4, 5, 6)
+	wantF(t, run1(t, "Trilu", nil, x), []int{2, 3}, 1, 2, 3, 0, 5, 6)
+	wantF(t, run1(t, "Trilu", map[string]any{"upper": 0}, x), []int{2, 3}, 1, 0, 0, 4, 5, 0)
+	wantF(t, run1(t, "Trilu", nil, x, iT(nil, 1)), []int{2, 3}, 0, 2, 3, 0, 0, 6)
+	wantF(t, run1(t, "Trilu", map[string]any{"upper": 0}, x, iT(nil, -1)), []int{2, 3}, 0, 0, 0, 4, 0, 0)
+	batched := fT([]int{2, 2, 2}, 1, 2, 3, 4, 5, 6, 7, 8)
+	wantF(t, run1(t, "Trilu", nil, batched), []int{2, 2, 2}, 1, 2, 0, 4, 5, 6, 0, 8)
+	ints := run1(t, "Trilu", nil, iT([]int{2, 2}, 1, 2, 3, 4))
+	if ints.I[0] != 1 || ints.I[1] != 2 || ints.I[2] != 0 || ints.I[3] != 4 {
+		t.Fatalf("integer Trilu: %v", ints.I)
+	}
+	mustFail(t, "Trilu", nil, "at least 2 dimensions", fT([]int{3}, 1, 2, 3))
+	mustFail(t, "Trilu", nil, "at least 1 inputs")
+	mustFail(t, "Trilu", nil, "expected integer scalar", x, fT([]int{1}, 0))
+}

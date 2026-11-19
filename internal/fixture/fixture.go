@@ -210,3 +210,44 @@ func WriteReranker(dir string, logits int, tokenTypes bool) error {
 	)
 	return write(dir, "onnx/model.onnx", pb.Model(g))
 }
+
+// LMVocab is the vocabulary size of the language-model fixture. Its next token after t is
+// (t+1) mod LMVocab.
+const LMVocab = 8
+
+// WriteLM writes a decoder directory with one layer and a key/value cache whose logits depend on the
+// current token only: token t is followed by t+1. The cache stores each token's embedding.
+func WriteLM(dir string, positionIDs bool) error {
+	if err := writeJSON(dir, "config.json", map[string]any{
+		"num_hidden_layers": 1, "num_attention_heads": 1, "num_key_value_heads": 1, "hidden_size": LMVocab, "vocab_size": LMVocab,
+	}); err != nil {
+		return err
+	}
+	identity := make([]float32, LMVocab*LMVocab)
+	successor := make([]float32, LMVocab*LMVocab)
+	for t := 0; t < LMVocab; t++ {
+		identity[t*LMVocab+t] = 1
+		successor[t*LMVocab+(t+1)%LMVocab] = 1
+	}
+	inputs := []string{"table", "w", "input_ids", "attention_mask"}
+	if positionIDs {
+		inputs = append(inputs, "position_ids")
+	}
+	inputs = append(inputs, "past_key_values.0.key", "past_key_values.0.value")
+	g := pb.Graph(
+		[][]byte{
+			pb.Node("Gather", []string{"table", "input_ids"}, []string{"x"}, pb.AttrInt("axis", 0)),
+			pb.Node("MatMul", []string{"x", "w"}, []string{"logits"}),
+			pb.Node("Unsqueeze", []string{"x"}, []string{"x4"}, pb.AttrInts("axes", 1)),
+			pb.Node("Concat", []string{"past_key_values.0.key", "x4"}, []string{"present.0.key"}, pb.AttrInt("axis", 2)),
+			pb.Node("Concat", []string{"past_key_values.0.value", "x4"}, []string{"present.0.value"}, pb.AttrInt("axis", 2)),
+		},
+		[][]byte{
+			pb.TensorFloats("table", []int64{LMVocab, LMVocab}, identity),
+			pb.TensorFloats("w", []int64{LMVocab, LMVocab}, successor),
+		},
+		inputs,
+		[]string{"logits", "present.0.key", "present.0.value"},
+	)
+	return write(dir, "onnx/model.onnx", pb.Model(g))
+}

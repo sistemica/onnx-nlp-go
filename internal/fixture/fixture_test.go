@@ -74,6 +74,18 @@ func TestRerankerWriterReportsFailures(t *testing.T) {
 	}
 }
 
+func TestLMWriterReportsFailures(t *testing.T) {
+	for _, blocked := range []string{"config.json", "onnx/model.onnx"} {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, blocked), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteLM(dir, true); err == nil {
+			t.Errorf("blocking %s did not fail WriteLM", blocked)
+		}
+	}
+}
+
 func TestWritersReportUnusableDirectories(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "occupied")
