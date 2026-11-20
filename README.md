@@ -32,6 +32,7 @@ import onnxnlp "github.com/sistemica/onnx-nlp-go"
 | GLiNER | `gliner2_config.json`, `tokenizer.json`, `onnx/encoder.onnx`, `onnx/boundary.onnx` | `DanKau/gliner2.5-multi-v1-onnx` |
 | Embeddings, KeyBERT, BERTopic | `modules.json`, `1_Pooling/config.json`, `sentence_bert_config.json`, `tokenizer.json`, `onnx/model.onnx` | ONNX export of a sentence-transformers model, e.g. `all-MiniLM-L6-v2`, `intfloat/multilingual-e5-small`, `BAAI/bge-m3` |
 | Reranker | `tokenizer.json`, `onnx/model.onnx` | `Xenova/bge-reranker-base`, `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| Chat / text generation | `config.json`, `generation_config.json`, `tokenizer.json`, `onnx/model.onnx` (with KV cache) | `onnx-community/Qwen2.5-0.5B-Instruct`; other byte-level BPE decoders such as SmolLM2 use the same layout |
 | GLiREL | `glirel_export.json`, `tokenizer.json`, `onnx/encoder.onnx`, `onnx/head.onnx` | built with `tools/glirel` |
 
 Build the GLiREL directory (needs Python with `torch`, `transformers`, `glirel`, `onnx`):
@@ -118,6 +119,19 @@ ids, strengths, err := model.Transform(newDocs) // assign new documents; topics 
 
 `FitEmbeddings(docs, vectors)` takes precomputed embeddings; use `TransformEmbeddings` on that model.
 
+### Text generation and chat
+
+```go
+model, err := onnxnlp.LoadLanguageModel("Qwen2.5-0.5B-Instruct")
+tok, err := onnxnlp.LoadBPE("Qwen2.5-0.5B-Instruct/tokenizer.json")
+chat := &onnxnlp.Chat{Model: model, Tokenizer: tok, System: "You are a helpful assistant.", Options: model.Defaults()}
+reply, err := chat.Say("Why is the sky blue?", func(piece string) { fmt.Print(piece) })
+```
+
+`Chat` keeps the last `MaxTurns` exchanges (default 4) within `MaxPromptTokens` (default 2048) and
+renders them as ChatML. Sampling defaults come from `generation_config.json`; `Options` overrides them.
+Lower level: `LoadLanguageModel`, `LoadBPE`, `LanguageModel.Generate`.
+
 ### Raw inference
 
 ```go
@@ -133,6 +147,7 @@ out, err := session.Run(map[string]*onnxnlp.Tensor{
 go install github.com/sistemica/onnx-nlp-go/cmd/gliner@latest
 go install github.com/sistemica/onnx-nlp-go/cmd/glirel@latest
 go install github.com/sistemica/onnx-nlp-go/cmd/bertopic@latest
+go install github.com/sistemica/onnx-nlp-go/cmd/chat@latest
 ```
 
 ```
@@ -140,6 +155,23 @@ gliner  -model DIR -labels person,city [-threshold 0.5] "TEXT"
 glirel  -model DIR -labels "works for,founded" -entities 0:2,4:5 [-threshold 0.5] [-topk N] TOKEN...
 bertopic -model DIR [-docs FILE] [-min-topic-size 10] [-top-words 10] [-stop-words] [-seed 42] [-assignments] [-assign FILE]
 ```
+
+`chat -model DIR [-system TEXT] [-turns 4] [-max-tokens 256] [-temperature T] [-top-k K] [-top-p P] [-repetition-penalty R] [-greedy] [-seed N] [-prompt TEXT] [-stats]`
+reads questions from standard input (`/reset`, `/history`, `/exit`), or answers one `-prompt`.
+
+### Chat quick start
+
+Get an instruct model exported to ONNX with a key/value cache, for example
+`onnx-community/Qwen2.5-0.5B-Instruct` (fp32 `onnx/model.onnx` plus `config.json`,
+`generation_config.json` and `tokenizer.json`), into a directory `DIR`.
+
+```
+go build -o chat ./cmd/chat
+./chat -model DIR                                   # interactive; /reset /history /exit
+./chat -model DIR -prompt "Why is the sky blue?" -stats -greedy
+```
+
+Set `ONNXNLP_GPU=off` to skip the GPU search. Expect about 5 GB of memory for the 0.5B model.
 
 `bertopic` reads one document per line from `-docs` or standard input. `-assign FILE` prints the topic
 of every document in `FILE` after fitting.
@@ -165,6 +197,10 @@ Apple Accelerate (`cblas_sgemm`) is tried first. CUDA (`libcuda`, `libcublas`) c
   return an error when the session is created. Quantized (int8, fp16) models are not supported.
 - Memory: weights are held as float32, plus a packed copy for the matrix kernel. bge-m3 needs about 11 GB
   with long texts.
+- Chat: Qwen2.5-0.5B decodes at about 30 ms per token with a short context and 40–55 ms at a few hundred
+  tokens, on the development machine (CPU only). Every turn processes the history again; the cache is not
+  kept between turns. The chat template is ChatML, not read from the model. Resident memory is about 5 GB
+  for the 0.5B model in float32.
 - GLiNER: entity extraction only (no classification, relation or structure heads).
 - GLiREL: `dot` scorer without refinement or coreference.
 - KeyBERT: English stop words only.
@@ -181,7 +217,8 @@ Runs without model files. Tests against reference data run when the matching var
 `ONNXNLP_MODELS`, `ONNXNLP_MINILM`, `ONNXNLP_REF`, `ONNXNLP_TOKGOLD`, `ONNXNLP_E2E`,
 `ONNXNLP_KBREF`, `ONNXNLP_GLIREL`, `ONNXNLP_GLIREL_REF`, `ONNXNLP_BERTOPIC_REF`, `ONNXNLP_EMBED_MODEL`,
 `ONNXNLP_EMBED_REF`, `ONNXNLP_RERANK_MODEL`, `ONNXNLP_RERANK_REF`, `ONNXNLP_XLMR_TOKENIZER`,
-`ONNXNLP_XLMR_GOLD`, `ONNXNLP_WP_TOKENIZER`, `ONNXNLP_WP_GOLD`. The Python scripts in
+`ONNXNLP_XLMR_GOLD`, `ONNXNLP_WP_TOKENIZER`, `ONNXNLP_WP_GOLD`, `ONNXNLP_LM_MODEL`, `ONNXNLP_LM_REF`,
+`ONNXNLP_BPE_TOKENIZER`, `ONNXNLP_BPE_GOLD`, `ONNXNLP_PROCESSORS_REF`. The Python scripts in
 `tools/` produce the reference data.
 
 ## License

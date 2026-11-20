@@ -1,8 +1,10 @@
 package onnxnlp
 
 import (
+	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -30,6 +32,10 @@ func selectKernel() {
 	rowBlock = 96
 }
 
+// singleRowKernel routes products with a single input row to the vector kernel. It is a variable
+// so that tests and benchmarks can compare it with the matrix kernel.
+var singleRowKernel = true
+
 type gemmJob struct {
 	out, a, b []float32
 	m, k, n   int
@@ -50,7 +56,22 @@ func runGemms(jobs []gemmJob) {
 	runGemmsCPU(jobs)
 }
 
+// prepack builds the packed weights a job will read, once. It runs before the parallel loop: inside
+// it, the other workers would be waiting for the packing and none would be free to share it.
+func (j gemmJob) prepack() {
+	if j.pack == nil || !useAVX2 || j.k == 0 {
+		return
+	}
+	if j.m == 1 && singleRowKernel && bf16Weights && j.pack.panels16(j.b, j.k, j.n) != nil {
+		return
+	}
+	j.pack.panels(j.b, j.k, j.n)
+}
+
 func runGemmsCPU(jobs []gemmJob) {
+	for _, j := range jobs {
+		j.prepack()
+	}
 	first := jobs[0]
 	tiles := (first.n + tileCols - 1) / tileCols
 	blocks := (first.m + rowBlock - 1) / rowBlock
@@ -78,6 +99,49 @@ func pooledBuffer(n int) (*[]float32, []float32) {
 type packCache struct {
 	once sync.Once
 	data []float32
+
+	once16 sync.Once
+	data16 []uint16
+}
+
+// bf16Weights lets single-row products read weights as 16-bit bfloat16 values when that loses
+// nothing. It is a variable so that tests and benchmarks can compare it with float32 panels.
+var bf16Weights = true
+
+// panels16 returns the packed panels of b as bfloat16, or nil when some weight has bits below the
+// top sixteen set and the conversion would change it. Models trained in bfloat16 and exported to
+// float32 qualify, and read half as much memory.
+func (c *packCache) panels16(b []float32, k, n int) []uint16 {
+	c.once16.Do(func() {
+		var inexact atomic.Bool
+		parallelFor(k, n, func(lo, hi int) {
+			for _, v := range b[lo*n : hi*n] {
+				if math.Float32bits(v)&0xffff != 0 {
+					inexact.Store(true)
+					return
+				}
+			}
+		})
+		if inexact.Load() {
+			return
+		}
+		tiles := (n + tileCols - 1) / tileCols
+		data := make([]uint16, tiles*k*tileCols)
+		parallelFor(tiles, k*tileCols, func(lo, hi int) {
+			for t := lo; t < hi; t++ {
+				col := t * tileCols
+				end := min(col+tileCols, n)
+				panel := data[t*k*tileCols : (t+1)*k*tileCols]
+				for p := 0; p < k; p++ {
+					for i, v := range b[p*n+col : p*n+end] {
+						panel[p*tileCols+i] = uint16(math.Float32bits(v) >> 16)
+					}
+				}
+			}
+		})
+		c.data16 = data
+	})
+	return c.data16
 }
 
 // packPanel copies the column tile starting at col into dst as k contiguous rows of tileCols,
@@ -95,9 +159,11 @@ func (c *packCache) panels(b []float32, k, n int) []float32 {
 	c.once.Do(func() {
 		tiles := (n + tileCols - 1) / tileCols
 		c.data = make([]float32, tiles*k*tileCols)
-		for t := 0; t < tiles; t++ {
-			packPanel(c.data[t*k*tileCols:(t+1)*k*tileCols], b, k, n, t*tileCols)
-		}
+		parallelFor(tiles, k*tileCols, func(lo, hi int) {
+			for t := lo; t < hi; t++ {
+				packPanel(c.data[t*k*tileCols:(t+1)*k*tileCols], b, k, n, t*tileCols)
+			}
+		})
 	})
 	return c.data
 }
@@ -109,6 +175,13 @@ func (j gemmJob) columnTile(col, rowLo, rows int) {
 		scalarBlock(j.out, j.a, j.b, j.k, j.n, rowLo, rowLo+rows, col, end)
 		return
 	}
+	if j.m == 1 && singleRowKernel && j.pack != nil && bf16Weights {
+		if p16 := j.pack.panels16(j.b, j.k, j.n); p16 != nil {
+			offset := col / tileCols * j.k * tileCols
+			j.vectorTile16(p16[offset:offset+j.k*tileCols], col, end-col)
+			return
+		}
+	}
 	var panel []float32
 	if j.pack != nil {
 		offset := col / tileCols * j.k * tileCols
@@ -119,9 +192,38 @@ func (j gemmJob) columnTile(col, rowLo, rows int) {
 		packPanel(scratch, j.b, j.k, j.n, col)
 		panel = scratch
 	}
+	if j.m == 1 && singleRowKernel {
+		j.vectorTile(panel, col, end-col)
+		return
+	}
 	for row := rowLo; row < rowLo+rows; row += tileRows {
 		j.block(panel, row, min(tileRows, rowLo+rows-row), col, end-col)
 	}
+}
+
+// vectorTile16 is vectorTile for a bfloat16 panel.
+func (j gemmJob) vectorTile16(panel []uint16, col, width int) {
+	if width == tileCols {
+		gemv16bf16(&j.a[0], &panel[0], &j.out[col], j.k)
+		return
+	}
+	var tile [tileCols]float32
+	copy(tile[:width], j.out[col:col+width])
+	gemv16bf16(&j.a[0], &panel[0], &tile[0], j.k)
+	copy(j.out[col:col+width], tile[:width])
+}
+
+// vectorTile accumulates one input row against a packed column tile. The matrix kernel would pad
+// the row to six and waste five sixths of its work.
+func (j gemmJob) vectorTile(panel []float32, col, width int) {
+	if width == tileCols {
+		gemv16(&j.a[0], &panel[0], &j.out[col], j.k)
+		return
+	}
+	var tile [tileCols]float32
+	copy(tile[:width], j.out[col:col+width])
+	gemv16(&j.a[0], &panel[0], &tile[0], j.k)
+	copy(j.out[col:col+width], tile[:width])
 }
 
 // block accumulates a tile of up to tileRows x tileCols; ragged edges go through small

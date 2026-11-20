@@ -366,6 +366,7 @@ func init() {
 		"Softmax":         opSoftmax,
 		"Split":           opSplit,
 		"Sqrt":            unary(viaF64(math.Sqrt), nil),
+		"Trilu":           opTrilu,
 		"Squeeze":         opSqueeze,
 		"Sub":             arith(nil, func(a, b int64) int64 { return a - b }),
 		"Tile":            opTile,
@@ -377,4 +378,43 @@ func init() {
 		opFusedGelu:       opFusedGeluRun,
 		opFusedMatMulBias: opFusedMatMulBiasRun,
 	}
+}
+
+// opTrilu zeroes everything outside the upper (default) or lower triangle of each trailing matrix.
+// The optional second input k shifts the diagonal.
+func opTrilu(c *opCtx) ([]*Tensor, error) {
+	if err := c.need(1); err != nil {
+		return nil, err
+	}
+	x := c.in[0]
+	if len(x.Shape) < 2 {
+		return nil, fmt.Errorf("Trilu needs at least 2 dimensions, got %d", len(x.Shape))
+	}
+	k := int64(0)
+	if len(c.in) > 1 && c.in[1] != nil {
+		var err error
+		if k, err = c.in[1].scalarInt(); err != nil {
+			return nil, err
+		}
+	}
+	upper := c.node.Int("upper", 1) == 1
+	rows, cols := x.Shape[len(x.Shape)-2], x.Shape[len(x.Shape)-1]
+	out := zeros(x.DType, x.Shape)
+	for m := 0; m < numel(x.Shape[:len(x.Shape)-2]); m++ {
+		for r := 0; r < rows; r++ {
+			for col := 0; col < cols; col++ {
+				offset := int64(col - r)
+				if (upper && offset < k) || (!upper && offset > k) {
+					continue
+				}
+				at := (m*rows+r)*cols + col
+				if x.isFloat() {
+					out.F[at] = x.F[at]
+				} else {
+					out.I[at] = x.I[at]
+				}
+			}
+		}
+	}
+	return []*Tensor{out}, nil
 }

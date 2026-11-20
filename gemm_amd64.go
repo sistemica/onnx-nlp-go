@@ -17,3 +17,14 @@ func kernel6x16(a *float32, lda int, b *float32, ldb int, c *float32, ldc int, k
 //
 //go:noescape
 func kernel12x16(a *float32, lda int, b *float32, ldb int, c *float32, ldc int, k int)
+
+// gemv16 computes y[0:16] += x[0:k] * panel[k x 16], where the panel rows are contiguous. It
+// requires k > 0.
+//
+//go:noescape
+func gemv16(x *float32, panel *float32, y *float32, k int)
+
+// gemv16bf16 is gemv16 for a panel of bfloat16 values.
+//
+//go:noescape
+func gemv16bf16(x *float32, panel *uint16, y *float32, k int)

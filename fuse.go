@@ -49,8 +49,7 @@ func fuseNodes(g *Graph) *Graph {
 	for i := range f.nodes {
 		f.fuseMatMulBias(i)
 	}
-	fused := *g
-	fused.Nodes = nil
+	fused := Graph{Name: g.Name, Inputs: g.Inputs, Outputs: g.Outputs, Initializers: g.Initializers}
 	for i, n := range g.Nodes {
 		switch {
 		case f.removed[i]:

@@ -210,16 +210,43 @@ func lastUses(g *Graph) map[string]int {
 	return last
 }
 
+// runPlan says which values a run must keep and which it can drop after each node. It depends
+// only on the graph, so it is computed once.
+type runPlan struct {
+	needed  map[string]bool
+	release [][]string
+}
+
+func (g *Graph) runPlan() *runPlan {
+	g.planOnce.Do(func() {
+		last := lastUses(g)
+		isOutput := make(map[string]bool, len(g.Outputs))
+		for _, name := range g.Outputs {
+			isOutput[name] = true
+		}
+		p := &runPlan{needed: make(map[string]bool, len(last)+len(isOutput)), release: make([][]string, len(g.Nodes))}
+		for name := range last {
+			p.needed[name] = true
+		}
+		for name := range isOutput {
+			p.needed[name] = true
+		}
+		for name, idx := range last {
+			if !isOutput[name] {
+				p.release[idx] = append(p.release[idx], name)
+			}
+		}
+		g.plan = p
+	})
+	return g.plan
+}
+
 func runGraph(g *Graph, parent *scope) ([]*Tensor, error) {
 	sc := &scope{vals: make(map[string]*Tensor, len(g.Nodes)), consts: g.Initializers, parent: parent}
 	if parent != nil {
 		sc.prof = parent.prof
 	}
-	last := lastUses(g)
-	isOutput := make(map[string]bool, len(g.Outputs))
-	for _, name := range g.Outputs {
-		isOutput[name] = true
-	}
+	plan := g.runPlan()
 	for idx, n := range g.Nodes {
 		ctx := &opCtx{node: n, in: make([]*Tensor, len(n.In)), scope: sc}
 		for i, name := range n.In {
@@ -244,14 +271,12 @@ func runGraph(g *Graph, parent *scope) ([]*Tensor, error) {
 			return nil, fmt.Errorf("node %q (%s): %w", n.Name, n.Op, err)
 		}
 		for i, name := range n.Out {
-			if _, used := last[name]; name != "" && i < len(outs) && outs[i] != nil && (used || isOutput[name]) {
+			if name != "" && i < len(outs) && outs[i] != nil && plan.needed[name] {
 				sc.vals[name] = outs[i]
 			}
 		}
-		for _, name := range nodeUses(n) {
-			if last[name] == idx && !isOutput[name] {
-				delete(sc.vals, name)
-			}
+		for _, name := range plan.release[idx] {
+			delete(sc.vals, name)
 		}
 	}
 	outs := make([]*Tensor, len(g.Outputs))

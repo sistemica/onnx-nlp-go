@@ -3,10 +3,12 @@ package onnxnlp
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
 type Attr struct {
@@ -29,6 +31,9 @@ type Node struct {
 }
 
 type Graph struct {
+	plan     *runPlan
+	planOnce sync.Once
+
 	Name         string
 	Nodes        []*Node
 	Initializers map[string]*Tensor
@@ -365,16 +370,14 @@ func (p *parser) readExternal(name string, entries map[string]string) ([]byte, e
 	if entries["offset"] != "" && (err != nil || offset < 0) {
 		return nil, fmt.Errorf("onnx: tensor %q has external data offset %q", name, entries["offset"])
 	}
-	size, err := strconv.ParseInt(entries["length"], 10, 64)
-	if err != nil || size < 0 {
-		info, statErr := f.Stat()
-		if statErr != nil {
-			return nil, statErr
-		}
-		size = info.Size() - offset
+	var buf []byte
+	if size, parseErr := strconv.ParseInt(entries["length"], 10, 64); parseErr == nil && size >= 0 {
+		buf = make([]byte, size)
+		_, err = f.ReadAt(buf, offset)
+	} else {
+		buf, err = io.ReadAll(io.NewSectionReader(f, offset, math.MaxInt64-offset))
 	}
-	buf := make([]byte, size)
-	if _, err := f.ReadAt(buf, offset); err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("onnx: tensor %q: reading external data: %w", name, err)
 	}
 	return buf, nil
