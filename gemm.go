@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -55,7 +56,22 @@ func runGemms(jobs []gemmJob) {
 	runGemmsCPU(jobs)
 }
 
+// prepack builds the packed weights a job will read, once. It runs before the parallel loop: inside
+// it, the other workers would be waiting for the packing and none would be free to share it.
+func (j gemmJob) prepack() {
+	if j.pack == nil || !useAVX2 || j.k == 0 {
+		return
+	}
+	if j.m == 1 && singleRowKernel && bf16Weights && j.pack.panels16(j.b, j.k, j.n) != nil {
+		return
+	}
+	j.pack.panels(j.b, j.k, j.n)
+}
+
 func runGemmsCPU(jobs []gemmJob) {
+	for _, j := range jobs {
+		j.prepack()
+	}
 	first := jobs[0]
 	tiles := (first.n + tileCols - 1) / tileCols
 	blocks := (first.m + rowBlock - 1) / rowBlock
@@ -97,23 +113,32 @@ var bf16Weights = true
 // float32 qualify, and read half as much memory.
 func (c *packCache) panels16(b []float32, k, n int) []uint16 {
 	c.once16.Do(func() {
-		for _, v := range b {
-			if math.Float32bits(v)&0xffff != 0 {
-				return
+		var inexact atomic.Bool
+		parallelFor(k, n, func(lo, hi int) {
+			for _, v := range b[lo*n : hi*n] {
+				if math.Float32bits(v)&0xffff != 0 {
+					inexact.Store(true)
+					return
+				}
 			}
+		})
+		if inexact.Load() {
+			return
 		}
 		tiles := (n + tileCols - 1) / tileCols
 		data := make([]uint16, tiles*k*tileCols)
-		for t := 0; t < tiles; t++ {
-			col := t * tileCols
-			end := min(col+tileCols, n)
-			panel := data[t*k*tileCols : (t+1)*k*tileCols]
-			for p := 0; p < k; p++ {
-				for i, v := range b[p*n+col : p*n+end] {
-					panel[p*tileCols+i] = uint16(math.Float32bits(v) >> 16)
+		parallelFor(tiles, k*tileCols, func(lo, hi int) {
+			for t := lo; t < hi; t++ {
+				col := t * tileCols
+				end := min(col+tileCols, n)
+				panel := data[t*k*tileCols : (t+1)*k*tileCols]
+				for p := 0; p < k; p++ {
+					for i, v := range b[p*n+col : p*n+end] {
+						panel[p*tileCols+i] = uint16(math.Float32bits(v) >> 16)
+					}
 				}
 			}
-		}
+		})
 		c.data16 = data
 	})
 	return c.data16
@@ -134,9 +159,11 @@ func (c *packCache) panels(b []float32, k, n int) []float32 {
 	c.once.Do(func() {
 		tiles := (n + tileCols - 1) / tileCols
 		c.data = make([]float32, tiles*k*tileCols)
-		for t := 0; t < tiles; t++ {
-			packPanel(c.data[t*k*tileCols:(t+1)*k*tileCols], b, k, n, t*tileCols)
-		}
+		parallelFor(tiles, k*tileCols, func(lo, hi int) {
+			for t := lo; t < hi; t++ {
+				packPanel(c.data[t*k*tileCols:(t+1)*k*tileCols], b, k, n, t*tileCols)
+			}
+		})
 	})
 	return c.data
 }

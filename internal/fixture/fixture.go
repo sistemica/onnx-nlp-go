@@ -251,3 +251,18 @@ func WriteLM(dir string, positionIDs bool) error {
 	)
 	return write(dir, "onnx/model.onnx", pb.Model(g))
 }
+
+// WriteLMTokenizer writes a byte-level BPE tokenizer for the language-model fixture: the letters a
+// to g are the tokens 0 to 6 and <|im_end|> is token 7, where the chain of successors ends.
+func WriteLMTokenizer(dir string) error {
+	vocab := map[string]int{}
+	for i, letter := range "abcdefg" {
+		vocab[string(letter)] = i
+	}
+	return writeJSON(dir, "tokenizer.json", map[string]any{
+		"added_tokens":  []map[string]any{{"id": 7, "content": "<|im_end|>", "special": true}},
+		"pre_tokenizer": map[string]any{"type": "ByteLevel", "add_prefix_space": false, "use_regex": true},
+		"decoder":       map[string]any{"type": "ByteLevel"},
+		"model":         map[string]any{"type": "BPE", "vocab": vocab, "merges": []string{}},
+	})
+}

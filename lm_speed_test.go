@@ -127,3 +127,42 @@ func TestLanguageModelPrefillSpeed(t *testing.T) {
 			float64(len(ids))/med.Seconds(), float64(processCPUTime()-cpuBefore)/float64(time.Since(wallBefore)), runtime.NumCPU())
 	}
 }
+
+// TestLanguageModelDecodeSpeedByContext shows how decoding slows as the conversation grows.
+func TestLanguageModelDecodeSpeedByContext(t *testing.T) {
+	dir, ref := os.Getenv("ONNXNLP_LM_MODEL"), os.Getenv("ONNXNLP_LM_REF")
+	if dir == "" || ref == "" {
+		t.Skip("ONNXNLP_LM_MODEL and ONNXNLP_LM_REF not set")
+	}
+	raw, err := os.ReadFile(filepath.Join(ref, "prompt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt struct {
+		IDs []int `json:"ids"`
+	}
+	if err := json.Unmarshal(raw, &prompt); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadLanguageModel(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, repeat := range []int{1, 6, 24} {
+		var ids []int
+		for i := 0; i < repeat; i++ {
+			ids = append(ids, prompt.IDs...)
+		}
+		cache := m.NewCache()
+		if _, err := m.Forward(ids, cache); err != nil {
+			t.Fatal(err)
+		}
+		decodeSteps(t, m, cache, 3)
+		var times []time.Duration
+		for round := 0; round < 5; round++ {
+			times = append(times, decodeSteps(t, m, cache, 6))
+		}
+		med := medianOf(times)
+		t.Logf("context of %4d tokens: %5.1f ms per token (%.1f tokens/s)", len(ids), float64(med.Microseconds())/1000, 1/med.Seconds())
+	}
+}

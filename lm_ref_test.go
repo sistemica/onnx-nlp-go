@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -138,4 +139,60 @@ func TestLanguageModelGreedyDecodingAgainstPyTorch(t *testing.T) {
 	if firstDifference >= 0 {
 		t.Logf("free-running greedy decoding first leaves PyTorch's path at token %d (see the margin above)", firstDifference)
 	}
+}
+
+func TestChatPipelineAgainstPyTorch(t *testing.T) {
+	dir, ref := os.Getenv("ONNXNLP_LM_MODEL"), os.Getenv("ONNXNLP_LM_REF")
+	if dir == "" || ref == "" {
+		t.Skip("ONNXNLP_LM_MODEL and ONNXNLP_LM_REF not set")
+	}
+	raw, err := os.ReadFile(filepath.Join(ref, "prompt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want struct {
+		Prompt     string `json:"prompt"`
+		IDs        []int  `json:"ids"`
+		Greedy     []int  `json:"greedy_ids"`
+		GreedyText string `json:"greedy_text"`
+	}
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := LoadBPE(filepath.Join(dir, "tokenizer.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadLanguageModel(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
+	messages := []Message{{"system", system}, {"user", "Wie viele Beine hat eine Spinne?"}}
+	if got := RenderChatML(messages, true); got != want.Prompt {
+		t.Fatalf("prompt text differs:\n got %q\nwant %q", got, want.Prompt)
+	}
+	ids := tok.Encode(RenderChatML(messages, true))
+	if !slices.Equal(ids, want.IDs) {
+		t.Fatalf("prompt ids differ:\n got %v\nwant %v", ids, want.IDs)
+	}
+	greedy := GenerateOptions{MaxNewTokens: 24, StopTokens: m.Defaults().StopTokens}
+	got, err := m.Generate(ids, greedy, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, want.Greedy) || tok.Decode(got) != want.GreedyText {
+		t.Fatalf("greedy continuation differs:\n got %v %q\nwant %v %q", got, tok.Decode(got), want.Greedy, want.GreedyText)
+	}
+	chat := &Chat{Model: m, Tokenizer: tok, System: system, Options: greedy}
+	var streamed string
+	start := time.Now()
+	reply, err := chat.Say("Wie viele Beine hat eine Spinne?", func(text string) { streamed += text })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != want.GreedyText || streamed != reply {
+		t.Fatalf("chat reply %q, streamed %q, want %q", reply, streamed, want.GreedyText)
+	}
+	t.Logf("%d prompt ids and %d generated tokens identical to PyTorch; text %q (%v including loading time of weights)", len(ids), len(got), reply, time.Since(start).Round(time.Millisecond))
 }

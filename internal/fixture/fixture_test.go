@@ -74,6 +74,23 @@ func TestRerankerWriterReportsFailures(t *testing.T) {
 	}
 }
 
+func TestLMTokenizerWriter(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteLMTokenizer(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tokenizer.json")); err != nil {
+		t.Fatal(err)
+	}
+	blocked := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(blocked, "tokenizer.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteLMTokenizer(blocked); err == nil {
+		t.Fatal("a blocked path must fail")
+	}
+}
+
 func TestLMWriterReportsFailures(t *testing.T) {
 	for _, blocked := range []string{"config.json", "onnx/model.onnx"} {
 		dir := t.TempDir()

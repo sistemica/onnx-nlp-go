@@ -14,6 +14,9 @@ type LanguageModel struct {
 	kvHeads  int
 	headDim  int
 	inputSet map[string]bool
+
+	defaults     GenerateOptions
+	maxPositions int
 }
 
 // Cache holds the keys and values of the tokens processed so far, one pair per layer.
@@ -51,6 +54,7 @@ func LoadLanguageModel(dir string) (*LanguageModel, error) {
 	if m.session, err = Load(filepath.Join(dir, "onnx", "model.onnx")); err != nil {
 		return nil, err
 	}
+	m.defaults, m.maxPositions = loadGenerationDefaults(dir)
 	m.inputSet = map[string]bool{}
 	for _, name := range m.session.InputNames() {
 		m.inputSet[name] = true
