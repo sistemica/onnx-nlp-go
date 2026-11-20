@@ -42,12 +42,12 @@ func echoChat(t *testing.T) *Chat {
 	}
 	return &Chat{
 		Model: m, Tokenizer: tok, Options: m.Defaults(),
-		Template: func(messages []Message, _ bool) string {
+		Template: func(messages []Message, _ bool) (string, error) {
 			var b strings.Builder
 			for _, msg := range messages {
 				b.WriteString(msg.Content)
 			}
-			return b.String()
+			return b.String(), nil
 		},
 	}
 }
@@ -112,7 +112,7 @@ func TestChatSendsTheSystemMessageFirst(t *testing.T) {
 	c.System = "bb"
 	var seen []Message
 	inner := c.Template
-	c.Template = func(messages []Message, gen bool) string {
+	c.Template = func(messages []Message, gen bool) (string, error) {
 		seen = messages
 		return inner(messages, gen)
 	}

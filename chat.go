@@ -35,8 +35,9 @@ type Chat struct {
 	MaxTurns int
 	// MaxPromptTokens drops the oldest exchanges until the prompt fits; zero means 2048.
 	MaxPromptTokens int
-	// Template renders the messages into the prompt text; the default is ChatML.
-	Template func(messages []Message, generationPrompt bool) string
+	// Template renders the messages into the prompt text; the default is ChatML. A model's own
+	// template comes from LoadChatTemplate and is passed as its Render method.
+	Template func(messages []Message, generationPrompt bool) (string, error)
 
 	// Last describes the most recent reply.
 	Last ChatStats
@@ -64,12 +65,12 @@ func (c *Chat) messages() []Message {
 	return append(out, c.history...)
 }
 
-func (c *Chat) render(generationPrompt bool) string {
-	template := c.Template
-	if template == nil {
-		template = RenderChatML
+func (c *Chat) render(generationPrompt bool) ([]int, error) {
+	if c.Template == nil {
+		return c.Tokenizer.Encode(RenderChatML(c.messages(), generationPrompt)), nil
 	}
-	return template(c.messages(), generationPrompt)
+	prompt, err := c.Template(c.messages(), generationPrompt)
+	return c.Tokenizer.Encode(prompt), err
 }
 
 // Say adds the user's message, streams the reply through emit, remembers it and returns it.
@@ -89,10 +90,14 @@ func (c *Chat) Say(user string, emit func(text string)) (string, error) {
 	if over := len(c.history) - (2*turns - 1); over > 0 {
 		c.history = c.history[over:]
 	}
-	prompt := c.Tokenizer.Encode(c.render(true))
-	for len(prompt) > budget && len(c.history) > 1 {
+	prompt, err := c.render(true)
+	for err == nil && len(prompt) > budget && len(c.history) > 1 {
 		c.history = c.history[min(2, len(c.history)-1):]
-		prompt = c.Tokenizer.Encode(c.render(true))
+		prompt, err = c.render(true)
+	}
+	if err != nil {
+		c.history = c.history[:len(c.history)-1]
+		return "", err
 	}
 	stream := c.Tokenizer.NewDecodeStream()
 	var reply strings.Builder

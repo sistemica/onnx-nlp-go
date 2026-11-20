@@ -69,8 +69,10 @@ func TestRerankerWriterReportsFailures(t *testing.T) {
 			t.Errorf("blocking %s did not fail WriteReranker", blocked)
 		}
 	}
-	if err := WriteReranker(t.TempDir(), 2, false); err != nil {
-		t.Fatal(err)
+	for _, tokenTypes := range []bool{false, true} {
+		if err := WriteReranker(t.TempDir(), 2, tokenTypes); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

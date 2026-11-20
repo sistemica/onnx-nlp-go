@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,8 +18,9 @@ import (
 var exit = os.Exit
 
 // loadChat builds the conversation for a model directory with config.json, tokenizer.json and
-// onnx/model.onnx. Tests replace it.
-var loadChat = func(dir, system string) (*onnxnlp.Chat, error) {
+// onnx/model.onnx. template is "" for the model's own chat template, "chatml" for ChatML, or the
+// path of a Jinja file. Tests replace it.
+var loadChat = func(dir, system, template string, stderr io.Writer) (*onnxnlp.Chat, error) {
 	model, err := onnxnlp.LoadLanguageModel(dir)
 	if err != nil {
 		return nil, err
@@ -28,9 +30,32 @@ var loadChat = func(dir, system string) (*onnxnlp.Chat, error) {
 		return nil, err
 	}
 	chat := &onnxnlp.Chat{Model: model, Tokenizer: tok, System: system, Options: model.Defaults()}
+	eos := ""
+	switch template {
+	case "chatml":
+	case "":
+		tpl, err := onnxnlp.LoadChatTemplate(dir)
+		if errors.Is(err, onnxnlp.ErrNoChatTemplate) {
+			fmt.Fprintln(stderr, "the model defines no chat template, using ChatML")
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%w (-template chatml uses ChatML instead)", err)
+		}
+		chat.Template, eos = tpl.Render, tpl.EOS
+	default:
+		tpl, err := onnxnlp.LoadChatTemplateFile(template, dir)
+		if err != nil {
+			return nil, err
+		}
+		chat.Template, eos = tpl.Render, tpl.EOS
+	}
 	if len(chat.Options.StopTokens) == 0 {
-		if id, ok := tok.TokenID("<|im_end|>"); ok {
-			chat.Options.StopTokens = []int{id}
+		for _, name := range []string{eos, "<|im_end|>"} {
+			if id, ok := tok.TokenID(name); ok {
+				chat.Options.StopTokens = []int{id}
+				break
+			}
 		}
 	}
 	return chat, nil
@@ -75,14 +100,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	seed := fs.Uint64("seed", 1, "random seed for sampling")
 	prompt := fs.String("prompt", "", "answer this once and exit")
 	stats := fs.Bool("stats", false, "report tokens and speed after every reply")
+	template := fs.String("template", "", "chat template: empty for the model's own, \"chatml\", or the path of a Jinja file")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *model == "" {
-		fmt.Fprintln(stderr, "usage: chat -model DIR [-prompt TEXT] [-system TEXT] [-turns 4] [-max-tokens 256] [-greedy] [-temperature T] [-top-k K] [-top-p P] [-stats]")
+		fmt.Fprintln(stderr, "usage: chat -model DIR [-prompt TEXT] [-system TEXT] [-turns 4] [-max-tokens 256] [-greedy] [-temperature T] [-top-k K] [-top-p P] [-template chatml|FILE] [-stats]")
 		return 2
 	}
-	chat, err := loadChat(*model, *system)
+	chat, err := loadChat(*model, *system, *template, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
