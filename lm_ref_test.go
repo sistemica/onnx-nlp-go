@@ -184,7 +184,14 @@ func TestChatPipelineAgainstPyTorch(t *testing.T) {
 	if !slices.Equal(got, want.Greedy) || tok.Decode(got) != want.GreedyText {
 		t.Fatalf("greedy continuation differs:\n got %v %q\nwant %v %q", got, tok.Decode(got), want.Greedy, want.GreedyText)
 	}
-	chat := &Chat{Model: m, Tokenizer: tok, System: system, Options: greedy}
+	tpl, err := LoadChatTemplate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := tpl.Render(messages, true); err != nil || got != want.Prompt {
+		t.Fatalf("the model's own chat template renders:\n got %q %v\nwant %q", got, err, want.Prompt)
+	}
+	chat := &Chat{Model: m, Tokenizer: tok, System: system, Options: greedy, Template: tpl.Render}
 	var streamed string
 	start := time.Now()
 	reply, err := chat.Say("Wie viele Beine hat eine Spinne?", func(text string) { streamed += text })

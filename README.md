@@ -124,12 +124,18 @@ ids, strengths, err := model.Transform(newDocs) // assign new documents; topics 
 ```go
 model, err := onnxnlp.LoadLanguageModel("Qwen2.5-0.5B-Instruct")
 tok, err := onnxnlp.LoadBPE("Qwen2.5-0.5B-Instruct/tokenizer.json")
-chat := &onnxnlp.Chat{Model: model, Tokenizer: tok, System: "You are a helpful assistant.", Options: model.Defaults()}
+template, err := onnxnlp.LoadChatTemplate("Qwen2.5-0.5B-Instruct")
+chat := &onnxnlp.Chat{Model: model, Tokenizer: tok, System: "You are a helpful assistant.", Options: model.Defaults(), Template: template.Render}
 reply, err := chat.Say("Why is the sky blue?", func(piece string) { fmt.Print(piece) })
 ```
 
-`Chat` keeps the last `MaxTurns` exchanges (default 4) within `MaxPromptTokens` (default 2048) and
-renders them as ChatML. Sampling defaults come from `generation_config.json`; `Options` overrides them.
+`Chat` keeps the last `MaxTurns` exchanges (default 4) within `MaxPromptTokens` (default 2048).
+`LoadChatTemplate` reads the model's own Jinja chat template (`chat_template.jinja`, or `chat_template`
+in `tokenizer_config.json`) and renders it in Go; without `Template` the prompt is ChatML. The Jinja
+subset covers what shipped templates use: `if`/`for`/`set`/`macro`, `namespace`, the usual filters and
+tests, string and dict methods, `raise_exception`, `strftime_now`, `break`/`continue`. Output was
+compared with jinja2 on the Qwen2.5, SmolLM2, Phi-3, TinyLlama, Mistral-7B v0.3, Llama 3.2 and Gemma 2
+templates. Tools and `{% call %}`, `{% include %}`, `{% raw %}` are not supported. Sampling defaults come from `generation_config.json`; `Options` overrides them.
 Lower level: `LoadLanguageModel`, `LoadBPE`, `LanguageModel.Generate`.
 
 ### Raw inference
@@ -156,8 +162,9 @@ glirel  -model DIR -labels "works for,founded" -entities 0:2,4:5 [-threshold 0.5
 bertopic -model DIR [-docs FILE] [-min-topic-size 10] [-top-words 10] [-stop-words] [-seed 42] [-assignments] [-assign FILE]
 ```
 
-`chat -model DIR [-system TEXT] [-turns 4] [-max-tokens 256] [-temperature T] [-top-k K] [-top-p P] [-repetition-penalty R] [-greedy] [-seed N] [-prompt TEXT] [-stats]`
-reads questions from standard input (`/reset`, `/history`, `/exit`), or answers one `-prompt`.
+`chat -model DIR [-system TEXT] [-turns 4] [-max-tokens 256] [-temperature T] [-top-k K] [-top-p P] [-repetition-penalty R] [-greedy] [-seed N] [-prompt TEXT] [-template chatml|FILE] [-stats]`
+reads questions from standard input (`/reset`, `/history`, `/exit`), or answers one `-prompt`. It uses the
+model's chat template; `-template chatml` forces ChatML and `-template FILE` loads a Jinja file.
 
 ### Chat quick start
 
@@ -199,8 +206,8 @@ Apple Accelerate (`cblas_sgemm`) is tried first. CUDA (`libcuda`, `libcublas`) c
   with long texts.
 - Chat: Qwen2.5-0.5B decodes at about 30 ms per token with a short context and 40–55 ms at a few hundred
   tokens, on the development machine (CPU only). Every turn processes the history again; the cache is not
-  kept between turns. The chat template is ChatML, not read from the model. Resident memory is about 5 GB
-  for the 0.5B model in float32.
+  kept between turns. A chat template that uses an unsupported tag stops the load with a message (use
+  `-template chatml`). Resident memory is about 5 GB for the 0.5B model in float32.
 - GLiNER: entity extraction only (no classification, relation or structure heads).
 - GLiREL: `dot` scorer without refinement or coreference.
 - KeyBERT: English stop words only.
@@ -218,7 +225,7 @@ Runs without model files. Tests against reference data run when the matching var
 `ONNXNLP_KBREF`, `ONNXNLP_GLIREL`, `ONNXNLP_GLIREL_REF`, `ONNXNLP_BERTOPIC_REF`, `ONNXNLP_EMBED_MODEL`,
 `ONNXNLP_EMBED_REF`, `ONNXNLP_RERANK_MODEL`, `ONNXNLP_RERANK_REF`, `ONNXNLP_XLMR_TOKENIZER`,
 `ONNXNLP_XLMR_GOLD`, `ONNXNLP_WP_TOKENIZER`, `ONNXNLP_WP_GOLD`, `ONNXNLP_LM_MODEL`, `ONNXNLP_LM_REF`,
-`ONNXNLP_BPE_TOKENIZER`, `ONNXNLP_BPE_GOLD`, `ONNXNLP_PROCESSORS_REF`. The Python scripts in
+`ONNXNLP_BPE_TOKENIZER`, `ONNXNLP_BPE_GOLD`, `ONNXNLP_PROCESSORS_REF`, `ONNXNLP_TEMPLATE_GOLD`. The Python scripts in
 `tools/` produce the reference data.
 
 ## License

@@ -29,12 +29,12 @@ func fixtureChat(t *testing.T, dir string) *onnxnlp.Chat {
 	}
 	return &onnxnlp.Chat{
 		Model: m, Tokenizer: tok, Options: m.Defaults(),
-		Template: func(messages []onnxnlp.Message, _ bool) string {
+		Template: func(messages []onnxnlp.Message, _ bool) (string, error) {
 			var b strings.Builder
 			for _, msg := range messages {
 				b.WriteString(msg.Content)
 			}
-			return b.String()
+			return b.String(), nil
 		},
 	}
 }
@@ -43,7 +43,7 @@ func withFixtureChat(t *testing.T) **onnxnlp.Chat {
 	t.Helper()
 	saved := loadChat
 	var chat *onnxnlp.Chat
-	loadChat = func(dir, system string) (*onnxnlp.Chat, error) {
+	loadChat = func(dir, system, template string, _ io.Writer) (*onnxnlp.Chat, error) {
 		chat = fixtureChat(t, t.TempDir())
 		chat.System = system
 		return chat, nil
@@ -164,9 +164,9 @@ func TestRunErrors(t *testing.T) {
 		t.Errorf("unreadable input: exit %d, stderr %q", code, errOut.String())
 	}
 	saved := loadChat
-	loadChat = func(dir, system string) (*onnxnlp.Chat, error) {
+	loadChat = func(dir, system, template string, _ io.Writer) (*onnxnlp.Chat, error) {
 		c := fixtureChat(t, t.TempDir())
-		c.Template = func([]onnxnlp.Message, bool) string { return "" }
+		c.Template = func([]onnxnlp.Message, bool) (string, error) { return "", nil }
 		return c, nil
 	}
 	defer func() { loadChat = saved }()
@@ -182,23 +182,73 @@ func TestRunErrors(t *testing.T) {
 func TestDefaultLoaderReadsAModelDirectory(t *testing.T) {
 	dir := t.TempDir()
 	fixture.Must(fixture.WriteLM(dir, true))
-	if _, err := loadChat(dir, ""); err == nil {
+	var notice bytes.Buffer
+	if _, err := loadChat(dir, "", "", &notice); err == nil {
 		t.Fatal("a directory without tokenizer.json must fail")
 	}
 	fixture.Must(fixture.WriteLMTokenizer(dir))
-	chat, err := loadChat(dir, "be brief")
+	chat, err := loadChat(dir, "be brief", "", &notice)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if chat.System != "be brief" || len(chat.Options.StopTokens) != 1 || chat.Options.StopTokens[0] != 7 {
 		t.Fatalf("without eos in the model's config, <|im_end|> from the tokenizer stops the reply: %+v", chat.Options)
 	}
-	if _, err := loadChat(t.TempDir(), ""); err == nil {
+	if chat.Template != nil || !strings.Contains(notice.String(), "using ChatML") {
+		t.Fatalf("a model without a template falls back to ChatML and says so: %q", notice.String())
+	}
+	if _, err := loadChat(t.TempDir(), "", "", &notice); err == nil {
 		t.Fatal("an empty directory must fail")
 	}
 	os.Remove(filepath.Join(dir, "onnx", "model.onnx"))
-	if _, err := loadChat(dir, ""); err == nil {
+	if _, err := loadChat(dir, "", "", &notice); err == nil {
 		t.Fatal("a missing model must fail")
+	}
+}
+
+func TestLoaderUsesTheModelsChatTemplate(t *testing.T) {
+	dir := t.TempDir()
+	fixture.Must(fixture.WriteLM(dir, true))
+	fixture.Must(fixture.WriteLMTokenizer(dir))
+	fixture.Must(os.WriteFile(filepath.Join(dir, "tokenizer_config.json"), []byte(`{"eos_token": "<|im_end|>", "chat_template": "[{{ messages[0].content }}]"}`), 0o644))
+	var notice bytes.Buffer
+	chat, err := loadChat(dir, "sys", "", &notice)
+	if err != nil || chat.Template == nil || notice.Len() != 0 {
+		t.Fatalf("%v %v %q", err, chat.Template == nil, notice.String())
+	}
+	if prompt, err := chat.Template([]onnxnlp.Message{{Role: "system", Content: "x"}}, true); err != nil || prompt != "[x]" {
+		t.Fatalf("the model's template renders the prompt: %q %v", prompt, err)
+	}
+	if got := chat.Options.StopTokens; len(got) != 1 || got[0] != 7 {
+		t.Fatalf("the template's eos_token stops the reply: %v", got)
+	}
+
+	forced, err := loadChat(dir, "", "chatml", &notice)
+	if err != nil || forced.Template != nil {
+		t.Fatalf("-template chatml ignores the model's template: %v", err)
+	}
+
+	file := filepath.Join(t.TempDir(), "custom.jinja")
+	fixture.Must(os.WriteFile(file, []byte("custom {{ eos_token }}"), 0o644))
+	custom, err := loadChat(dir, "", file, &notice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt, _ := custom.Template(nil, false); prompt != "custom <|im_end|>" {
+		t.Fatalf("a template file gets the model's special tokens: %q", prompt)
+	}
+	if _, err := loadChat(dir, "", filepath.Join(t.TempDir(), "missing.jinja"), &notice); err == nil {
+		t.Fatal("a missing template file must fail")
+	}
+
+	fixture.Must(os.WriteFile(filepath.Join(dir, "tokenizer_config.json"), []byte(`{"chat_template": "{% macro %}"}`), 0o644))
+	if _, err := loadChat(dir, "", "", &notice); err == nil || !strings.Contains(err.Error(), "-template chatml") {
+		t.Fatalf("a template that cannot be used names the way out: %v", err)
+	}
+	fixture.Must(os.WriteFile(filepath.Join(dir, "tokenizer_config.json"), []byte(`{"chat_template": "x", "eos_token": "<missing>"}`), 0o644))
+	loose, err := loadChat(dir, "", "", &notice)
+	if err != nil || len(loose.Options.StopTokens) != 1 || loose.Options.StopTokens[0] != 7 {
+		t.Fatalf("an eos_token the vocabulary lacks falls back to <|im_end|>: %v %v", loose.Options.StopTokens, err)
 	}
 }
 

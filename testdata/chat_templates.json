@@ -1,0 +1,2557 @@
+{
+ "models": [
+  {
+   "name": "Qwen2.5-0.5B-Instruct",
+   "template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- messages[0]['content'] }}\n    {%- else %}\n        {{- 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.' }}\n    {%- endif %}\n    {{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}\n    {%- else %}\n        {{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {{- '<|im_start|>' + message.role }}\n        {%- if message.content %}\n            {{- '\\n' + message.content }}\n        {%- endif %}\n        {%- for tool_call in message.tool_calls %}\n            {%- if tool_call.function is defined %}\n                {%- set tool_call = tool_call.function %}\n            {%- endif %}\n            {{- '\\n<tool_call>\\n{\"name\": \"' }}\n            {{- tool_call.name }}\n            {{- '\", \"arguments\": ' }}\n            {{- tool_call.arguments | tojson }}\n            {{- '}\\n</tool_call>' }}\n        {%- endfor %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n{%- endif %}\n",
+   "tokens": {
+    "eos_token": "<|im_end|>",
+    "pad_token": "<|endoftext|>"
+   },
+   "cases": [
+    {
+     "title": "single question",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nWie viele Beine hat eine Spinne?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "single question",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nWie viele Beine hat eine Spinne?<|im_end|>\n"
+    },
+    {
+     "title": "with system",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "with system",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n"
+    },
+    {
+     "title": "two turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "two turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|im_start|>system\n  spaced \n<|im_end|>\n<|im_start|>user\n  héllo 😀\n\n<|im_end|>\n<|im_start|>assistant\n ok  <|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|im_start|>system\n  spaced \n<|im_end|>\n<|im_start|>user\n  héllo 😀\n\n<|im_end|>\n<|im_start|>assistant\n ok  <|im_end|>\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": true,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>assistant\nhello<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": false,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>assistant\nhello<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>user\nb<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>user\nb<|im_end|>\n"
+    }
+   ]
+  },
+  {
+   "name": "SmolLM2-360M-Instruct",
+   "template": "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n' }}{% endif %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}",
+   "tokens": {
+    "bos_token": "<|im_start|>",
+    "eos_token": "<|im_end|>",
+    "pad_token": "<|im_end|>",
+    "unk_token": "<|endoftext|>"
+   },
+   "cases": [
+    {
+     "title": "single question",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\nWie viele Beine hat eine Spinne?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "single question",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\nWie viele Beine hat eine Spinne?<|im_end|>\n"
+    },
+    {
+     "title": "with system",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "with system",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n"
+    },
+    {
+     "title": "two turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "two turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>assistant\nb<|im_end|>\n<|im_start|>user\nc<|im_end|>\n<|im_start|>assistant\nd<|im_end|>\n<|im_start|>user\ne<|im_end|>\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|im_start|>system\n  spaced \n<|im_end|>\n<|im_start|>user\n  héllo 😀\n\n<|im_end|>\n<|im_start|>assistant\n ok  <|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|im_start|>system\n  spaced \n<|im_end|>\n<|im_start|>user\n  héllo 😀\n\n<|im_end|>\n<|im_start|>assistant\n ok  <|im_end|>\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": true,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>assistant\nhello<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": false,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>assistant\nhello<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>user\nb<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\na<|im_end|>\n<|im_start|>user\nb<|im_end|>\n"
+    }
+   ]
+  },
+  {
+   "name": "Phi-3-mini",
+   "template": "{% for message in messages %}{% if message['role'] == 'system' %}{{'<|system|>\n' + message['content'] + '<|end|>\n'}}{% elif message['role'] == 'user' %}{{'<|user|>\n' + message['content'] + '<|end|>\n'}}{% elif message['role'] == 'assistant' %}{{'<|assistant|>\n' + message['content'] + '<|end|>\n'}}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ '<|assistant|>\n' }}{% else %}{{ eos_token }}{% endif %}",
+   "tokens": {
+    "bos_token": "<s>",
+    "eos_token": "<|endoftext|>",
+    "pad_token": "<|endoftext|>",
+    "unk_token": "<unk>"
+   },
+   "cases": [
+    {
+     "title": "single question",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|user|>\nWie viele Beine hat eine Spinne?<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "single question",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|user|>\nWie viele Beine hat eine Spinne?<|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "with system",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|system|>\nYou are terse.<|end|>\n<|user|>\nHi<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "with system",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|system|>\nYou are terse.<|end|>\n<|user|>\nHi<|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "two turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|system|>\nBe brief.<|end|>\n<|user|>\nWhat is 2+2?<|end|>\n<|assistant|>\n4<|end|>\n<|user|>\nAnd 3+3?<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "two turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|system|>\nBe brief.<|end|>\n<|user|>\nWhat is 2+2?<|end|>\n<|assistant|>\n4<|end|>\n<|user|>\nAnd 3+3?<|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|user|>\na<|end|>\n<|assistant|>\nb<|end|>\n<|user|>\nc<|end|>\n<|assistant|>\nd<|end|>\n<|user|>\ne<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|user|>\na<|end|>\n<|assistant|>\nb<|end|>\n<|user|>\nc<|end|>\n<|assistant|>\nd<|end|>\n<|user|>\ne<|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|system|>\n  spaced \n<|end|>\n<|user|>\n  héllo 😀\n\n<|end|>\n<|assistant|>\n ok  <|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|system|>\n  spaced \n<|end|>\n<|user|>\n  héllo 😀\n\n<|end|>\n<|assistant|>\n ok  <|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "assistant first",
+     "generation": true,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|assistant|>\nhello<|end|>\n<|user|>\nhi<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": false,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|assistant|>\nhello<|end|>\n<|user|>\nhi<|end|>\n<|endoftext|>"
+    },
+    {
+     "title": "two users in a row",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|user|>\na<|end|>\n<|user|>\nb<|end|>\n<|assistant|>\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|user|>\na<|end|>\n<|user|>\nb<|end|>\n<|endoftext|>"
+    }
+   ]
+  },
+  {
+   "name": "TinyLlama",
+   "template": "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}",
+   "tokens": {
+    "bos_token": "<s>",
+    "eos_token": "</s>",
+    "pad_token": "</s>",
+    "unk_token": "<unk>"
+   },
+   "cases": [
+    {
+     "title": "single question",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|user|>\nWie viele Beine hat eine Spinne?</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "single question",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<|user|>\nWie viele Beine hat eine Spinne?</s>\n"
+    },
+    {
+     "title": "with system",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|system|>\nYou are terse.</s>\n<|user|>\nHi</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "with system",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<|system|>\nYou are terse.</s>\n<|user|>\nHi</s>\n"
+    },
+    {
+     "title": "two turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|system|>\nBe brief.</s>\n<|user|>\nWhat is 2+2?</s>\n<|assistant|>\n4</s>\n<|user|>\nAnd 3+3?</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "two turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<|system|>\nBe brief.</s>\n<|user|>\nWhat is 2+2?</s>\n<|assistant|>\n4</s>\n<|user|>\nAnd 3+3?</s>\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|user|>\na</s>\n<|assistant|>\nb</s>\n<|user|>\nc</s>\n<|assistant|>\nd</s>\n<|user|>\ne</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<|user|>\na</s>\n<|assistant|>\nb</s>\n<|user|>\nc</s>\n<|assistant|>\nd</s>\n<|user|>\ne</s>\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|system|>\n  spaced \n</s>\n<|user|>\n  héllo 😀\n\n</s>\n<|assistant|>\n ok  </s>\n<|assistant|>\n"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<|system|>\n  spaced \n</s>\n<|user|>\n  héllo 😀\n\n</s>\n<|assistant|>\n ok  </s>\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": true,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|assistant|>\nhello</s>\n<|user|>\nhi</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "assistant first",
+     "generation": false,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "output": "<|assistant|>\nhello</s>\n<|user|>\nhi</s>\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|user|>\na</s>\n<|user|>\nb</s>\n<|assistant|>\n"
+    },
+    {
+     "title": "two users in a row",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "output": "<|user|>\na</s>\n<|user|>\nb</s>\n"
+    }
+   ]
+  },
+  {
+   "name": "Mistral-7B-v0.3",
+   "template": "{%- if messages[0][\"role\"] == \"system\" %}\n    {%- set system_message = messages[0][\"content\"] %}\n    {%- set loop_messages = messages[1:] %}\n{%- else %}\n    {%- set loop_messages = messages %}\n{%- endif %}\n{%- if not tools is defined %}\n    {%- set tools = none %}\n{%- endif %}\n{%- set user_messages = loop_messages | selectattr(\"role\", \"equalto\", \"user\") | list %}\n\n{#- This block checks for alternating user/assistant messages, skipping tool calling messages #}\n{%- set ns = namespace() %}\n{%- set ns.index = 0 %}\n{%- for message in loop_messages %}\n    {%- if not (message.role == \"tool\" or message.role == \"tool_results\" or (message.tool_calls is defined and message.tool_calls is not none)) %}\n        {%- if (message[\"role\"] == \"user\") != (ns.index % 2 == 0) %}\n            {{- raise_exception(\"After the optional system message, conversation roles must alternate user/assistant/user/assistant/...\") }}\n        {%- endif %}\n        {%- set ns.index = ns.index + 1 %}\n    {%- endif %}\n{%- endfor %}\n\n{{- bos_token }}\n{%- for message in loop_messages %}\n    {%- if message[\"role\"] == \"user\" %}\n        {%- if tools is not none and (message == user_messages[-1]) %}\n            {{- \"[AVAILABLE_TOOLS] [\" }}\n            {%- for tool in tools %}\n                {%- set tool = tool.function %}\n                {{- '{\"type\": \"function\", \"function\": {' }}\n                {%- for key, val in tool.items() if key != \"return\" %}\n                    {%- if val is string %}\n                        {{- '\"' + key + '\": \"' + val + '\"' }}\n                    {%- else %}\n                        {{- '\"' + key + '\": ' + val|tojson }}\n                    {%- endif %}\n                    {%- if not loop.last %}\n                        {{- \", \" }}\n                    {%- endif %}\n                {%- endfor %}\n                {{- \"}}\" }}\n                {%- if not loop.last %}\n                    {{- \", \" }}\n                {%- else %}\n                    {{- \"]\" }}\n                {%- endif %}\n            {%- endfor %}\n            {{- \"[/AVAILABLE_TOOLS]\" }}\n            {%- endif %}\n        {%- if loop.last and system_message is defined %}\n            {{- \"[INST] \" + system_message + \"\\n\\n\" + message[\"content\"] + \"[/INST]\" }}\n        {%- else %}\n            {{- \"[INST] \" + message[\"content\"] + \"[/INST]\" }}\n        {%- endif %}\n    {%- elif message.tool_calls is defined and message.tool_calls is not none %}\n        {{- \"[TOOL_CALLS] [\" }}\n        {%- for tool_call in message.tool_calls %}\n            {%- set out = tool_call.function|tojson %}\n            {{- out[:-1] }}\n            {%- if not tool_call.id is defined or tool_call.id|length != 9 %}\n                {{- raise_exception(\"Tool call IDs should be alphanumeric strings with length 9!\") }}\n            {%- endif %}\n            {{- ', \"id\": \"' + tool_call.id + '\"}' }}\n            {%- if not loop.last %}\n                {{- \", \" }}\n            {%- else %}\n                {{- \"]\" + eos_token }}\n            {%- endif %}\n        {%- endfor %}\n    {%- elif message[\"role\"] == \"assistant\" %}\n        {{- \" \" + message[\"content\"]|trim + eos_token}}\n    {%- elif message[\"role\"] == \"tool_results\" or message[\"role\"] == \"tool\" %}\n        {%- if message.content is defined and message.content.content is defined %}\n            {%- set content = message.content.content %}\n        {%- else %}\n            {%- set content = message.content %}\n        {%- endif %}\n        {{- '[TOOL_RESULTS] {\"content\": ' + content|string + \", \" }}\n        {%- if not message.tool_call_id is defined or message.tool_call_id|length != 9 %}\n            {{- raise_exception(\"Tool call IDs should be alphanumeric strings with length 9!\") }}\n        {%- endif %}\n        {{- '\"call_id\": \"' + message.tool_call_id + '\"}[/TOOL_RESULTS]' }}\n    {%- else %}\n        {{- raise_exception(\"Only user and assistant roles are supported, with the exception of an initial optional system message!\") }}\n    {%- endif %}\n{%- endfor %}\n",
+   "tokens": {
+    "bos_token": "<s>",
+    "eos_token": "</s>",
+    "pad_token": "[control_768]",
+    "unk_token": "<unk>"
+   },
+   "cases": [
+    {
+     "title": "single question",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<s>[INST] Wie viele Beine hat eine Spinne?[/INST]"
+    },
+    {
+     "title": "single question",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "Wie viele Beine hat eine Spinne?"
+      }
+     ],
+     "output": "<s>[INST] Wie viele Beine hat eine Spinne?[/INST]"
+    },
+    {
+     "title": "with system",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<s>[INST] You are terse.\n\nHi[/INST]"
+    },
+    {
+     "title": "with system",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are terse."
+      },
+      {
+       "role": "user",
+       "content": "Hi"
+      }
+     ],
+     "output": "<s>[INST] You are terse.\n\nHi[/INST]"
+    },
+    {
+     "title": "two turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<s>[INST] What is 2+2?[/INST] 4</s>[INST] Be brief.\n\nAnd 3+3?[/INST]"
+    },
+    {
+     "title": "two turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is 2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "output": "<s>[INST] What is 2+2?[/INST] 4</s>[INST] Be brief.\n\nAnd 3+3?[/INST]"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<s>[INST] a[/INST] b</s>[INST] c[/INST] d</s>[INST] e[/INST]"
+    },
+    {
+     "title": "no system, three turns",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "assistant",
+       "content": "b"
+      },
+      {
+       "role": "user",
+       "content": "c"
+      },
+      {
+       "role": "assistant",
+       "content": "d"
+      },
+      {
+       "role": "user",
+       "content": "e"
+      }
+     ],
+     "output": "<s>[INST] a[/INST] b</s>[INST] c[/INST] d</s>[INST] e[/INST]"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": true,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<s>[INST]   héllo 😀\n\n[/INST] ok</s>"
+    },
+    {
+     "title": "padding and unicode",
+     "generation": false,
+     "messages": [
+      {
+       "role": "system",
+       "content": "  spaced \n"
+      },
+      {
+       "role": "user",
+       "content": "  héllo 😀\n\n"
+      },
+      {
+       "role": "assistant",
+       "content": " ok  "
+      }
+     ],
+     "output": "<s>[INST]   héllo 😀\n\n[/INST] ok</s>"
+    },
+    {
+     "title": "assistant first",
+     "generation": true,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "error": "After the optional system message, conversation roles must alternate user/assistant/user/assistant/...",
+     "type": "TemplateError"
+    },
+    {
+     "title": "assistant first",
+     "generation": false,
+     "messages": [
+      {
+       "role": "assistant",
+       "content": "hello"
+      },
+      {
+       "role": "user",
+       "content": "hi"
+      }
+     ],
+     "error": "After the optional system message, conversation roles must alternate user/assistant/user/assistant/...",
+     "type": "TemplateError"
+    },
+    {
+     "title": "two users in a row",
+     "generation": true,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "error": "After the optional system message, conversation roles must alternate user/assistant/user/assistant/...",
+     "type": "TemplateError"
+    },
+    {
+     "title": "two users in a row",
+     "generation": false,
+     "messages": [
+      {
+       "role": "user",
+       "content": "a"
+      },
+      {
+       "role": "user",
+       "content": "b"
+      }
+     ],
+     "error": "After the optional system message, conversation roles must alternate user/assistant/user/assistant/...",
+     "type": "TemplateError"
+    }
+   ]
+  }
+ ],
+ "fixed_date": "26 Jul 2024",
+ "snippets": {
+  "context": {
+   "messages": [
+    {
+     "role": "system",
+     "content": "S"
+    },
+    {
+     "role": "user",
+     "content": "U"
+    },
+    {
+     "role": "assistant",
+     "content": "A"
+    }
+   ],
+   "xs": [
+    3,
+    1,
+    2
+   ],
+   "words": [
+    "b",
+    "a",
+    "c"
+   ],
+   "d": {
+    "a": 1,
+    "b": [
+     1,
+     2
+    ],
+    "c": {
+     "x": null
+    }
+   },
+   "s": "  Hello World  ",
+   "n": 7,
+   "neg": -7,
+   "f": 2.5,
+   "nothing": null,
+   "yes": true,
+   "no": false,
+   "empty": "",
+   "text": "one,two,,three",
+   "people": [
+    {
+     "name": "Ann",
+     "age": 31,
+     "tags": [
+      "a"
+     ]
+    },
+    {
+     "name": "Bob",
+     "age": 25,
+     "tags": []
+    },
+    {
+     "name": "Cy",
+     "age": 31
+    }
+   ]
+  },
+  "cases": [
+   {
+    "template": "{{ 1 }}",
+    "output": "1"
+   },
+   {
+    "template": "{{ 'a' ~ 1 ~ none }}",
+    "output": "a1None"
+   },
+   {
+    "template": "{{ 7 // 2 }} {{ -7 // 2 }} {{ 7 % 3 }} {{ -7 % 3 }} {{ 7 / 2 }} {{ 2 ** 10 }} {{ 2 ** -1 }}",
+    "output": "3 -4 1 2 3.5 1024 0.5"
+   },
+   {
+    "template": "{{ 7.0 // 2 }} {{ -7.5 % 2 }} {{ 1e3 }} {{ 1.5e-7 }} {{ 123456789012345678.0 }} {{ 0.1 + 0.2 }}",
+    "output": "3.0 0.5 1000.0 1.5e-07 1.2345678901234568e+17 0.30000000000000004"
+   },
+   {
+    "template": "{{ n + 1 }} {{ n - 10 }} {{ n * 2 }} {{ f * 2 }} {{ -n }} {{ +n }}",
+    "output": "8 -3 14 5.0 -7 7"
+   },
+   {
+    "template": "{{ 'ab' * 3 }}{{ 2 * 'ab' }}",
+    "output": "ababababab"
+   },
+   {
+    "template": "{{ [1] * 3 }} {{ [1] + [2, 3] }}",
+    "output": "[1, 1, 1] [1, 2, 3]"
+   },
+   {
+    "template": "{{ 'a' + 'b' }}",
+    "output": "ab"
+   },
+   {
+    "template": "{{ 'a' + 1 }}",
+    "error": "can only concatenate str (not \"int\") to str",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 1 / 0 }}",
+    "error": "division by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ 5 % 0 }}",
+    "error": "integer modulo by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ none }} {{ true }} {{ false }} {{ True }} {{ None }}",
+    "output": "None True False True None"
+   },
+   {
+    "template": "{{ [1, 'a', none, true, 2.0, [3]] }}",
+    "output": "[1, 'a', None, True, 2.0, [3]]"
+   },
+   {
+    "template": "{{ {'a': 1, 'b': [1, 2]} }}",
+    "output": "{'a': 1, 'b': [1, 2]}"
+   },
+   {
+    "template": "{{ \"it's\" }} {{ ['it\\'s', 'say \"x\"', 'both \\' \"', 'tab\\t', 'nl\\n'] }}",
+    "output": "it's [\"it's\", 'say \"x\"', 'both \\' \"', 'tab\\t', 'nl\\n']"
+   },
+   {
+    "template": "{{ 'a\\nb' }}|{{ 'a\\tb' }}|{{ 'back\\\\slash' }}|{{ '\\u00e9\\x41' }}|{{ '\\q' }}",
+    "output": "a\nb|a\tb|back\\slash|éA|\\q"
+   },
+   {
+    "template": "{{ 'adjacent' 'strings' }}",
+    "output": "adjacentstrings"
+   },
+   {
+    "template": "{{ x }}|{{ x.y }}",
+    "error": "'x' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ d.missing }}|{{ d.missing.deeper }}",
+    "error": "'dict object' has no attribute 'missing'",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ d['a'] }} {{ d.a }} {{ d['b'][1] }} {{ d.b[-1] }} {{ d.c.x }}",
+    "output": "1 1 2 2 None"
+   },
+   {
+    "template": "{{ xs[0] }} {{ xs[-1] }} {{ xs[5] }}|{{ xs[1:] }} {{ xs[:-1] }} {{ xs[::-1] }} {{ xs[::2] }} {{ xs[1:2] }} {{ xs[-2:] }} {{ xs[5:] }}",
+    "output": "3 2 |[1, 2] [3, 1] [2, 1, 3] [3, 2] [1] [1, 2] []"
+   },
+   {
+    "template": "{{ s[2] }} {{ s[2:7] }} {{ s[::-1] }} {{ 'héllo'[1] }}",
+    "output": "H Hello   dlroW olleH   é"
+   },
+   {
+    "template": "{{ nothing.attr }}",
+    "output": ""
+   },
+   {
+    "template": "{{ nothing[0] }}",
+    "output": ""
+   },
+   {
+    "template": "{{ n.attr }}",
+    "output": ""
+   },
+   {
+    "template": "{{ n is defined }} {{ missing is defined }} {{ missing is not defined }} {{ missing is undefined }} {{ nothing is none }} {{ n is not none }}",
+    "output": "True False True True True True"
+   },
+   {
+    "template": "{{ s is string }} {{ n is number }} {{ n is integer }} {{ f is float }} {{ f is integer }} {{ yes is boolean }} {{ d is mapping }} {{ xs is iterable }} {{ n is iterable }} {{ xs is sequence }} {{ s is sequence }}",
+    "output": "True True True True False True True True False True True"
+   },
+   {
+    "template": "{{ n is odd }} {{ n is even }} {{ 8 is divisibleby 4 }} {{ 8 is divisibleby(3) }} {{ n is eq 7 }} {{ n is ne 7 }} {{ n is lt 8 }} {{ n is gt 8 }} {{ n is le 7 }} {{ n is ge 8 }} {{ yes is true }} {{ no is false }} {{ n is in([7, 8]) }}",
+    "output": "True False True False True False True False True False True True True"
+   },
+   {
+    "template": "{{ not n is defined }} {{ not missing is defined }}",
+    "output": "False True"
+   },
+   {
+    "template": "{{ n is nosuchtest }}",
+    "error": "No test named 'nosuchtest'.",
+    "type": "TemplateAssertionError"
+   },
+   {
+    "template": "{{ n|nosuchfilter }}",
+    "error": "No filter named 'nosuchfilter'.",
+    "type": "TemplateAssertionError"
+   },
+   {
+    "template": "{{ 1 < 2 }} {{ 2 <= 2 }} {{ 'a' < 'b' }} {{ 1 == 1.0 }} {{ 'a' == 'a' }} {{ 1 != 2 }} {{ [1, 2] == [1, 2] }} {{ {'a': 1} == {'a': 1} }} {{ none == none }} {{ true == 1 }}",
+    "output": "True True True True True True True True True True"
+   },
+   {
+    "template": "{{ 1 < 2 < 3 }} {{ 1 < 3 < 2 }} {{ 3 > 2 > 1 }} {{ 1 == 1 != 2 }}",
+    "output": "True False True True"
+   },
+   {
+    "template": "{{ 1 < 'a' }}",
+    "error": "'<' not supported between instances of 'int' and 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ none < 1 }}",
+    "error": "'<' not supported between instances of 'NoneType' and 'int'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'a' in 'abc' }} {{ 'z' in 'abc' }} {{ 2 in xs }} {{ 'a' in d }} {{ 'z' not in d }} {{ 5 not in xs }} {{ 'a' in missing }}",
+    "output": "True False True True True True False"
+   },
+   {
+    "template": "{{ 1 in 'abc' }}",
+    "error": "'in <string>' requires string as left operand, not int",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 1 in n }}",
+    "error": "argument of type 'int' is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ yes and n }} {{ no and n }} {{ no or n }} {{ n or no }} {{ nothing or 'x' }} {{ empty or 'fallback' }} {{ not empty }} {{ not xs }}",
+    "output": "7 False 7 7 x fallback True False"
+   },
+   {
+    "template": "{{ 'y' if yes else 'n' }} {{ 'y' if no else 'n' }}|{{ ('y' if no) }}|{{ 'a' if no else 'b' if yes else 'c' }}",
+    "output": "y n||b"
+   },
+   {
+    "template": "{{ (1, 2)|list }} {{ ()|list }} {{ (1,)|list }} {{ [] }} {{ {} }}",
+    "output": "[1, 2] [] [1] [] {}"
+   },
+   {
+    "template": "{{ [1, 2, ] }} {{ {'a': 1, } }}",
+    "output": "[1, 2] {'a': 1}"
+   },
+   {
+    "template": "{{ s|trim }}|{{ s|upper }}|{{ s|lower }}|{{ s|title }}|{{ 'hELLO wORLD'|capitalize }}|{{ s|length }}|{{ s|trim|length }}",
+    "output": "Hello World|  HELLO WORLD  |  hello world  |  Hello World  |Hello world|15|11"
+   },
+   {
+    "template": "{{ xs|length }} {{ d|length }} {{ xs|count }} {{ missing|length }}",
+    "output": "3 3 3 0"
+   },
+   {
+    "template": "{{ n|length }}",
+    "error": "object of type 'int' has no len()",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ xs|first }} {{ xs|last }} {{ xs|reverse|list }} {{ 'abc'|reverse }} {{ empty|first }}|",
+    "output": "3 2 [2, 1, 3] cba |"
+   },
+   {
+    "template": "{{ xs|sort }} {{ words|sort }} {{ xs|sort(reverse=true) }} {{ people|sort(attribute='name')|map(attribute='name')|list }}",
+    "output": "[1, 2, 3] ['a', 'b', 'c'] [3, 2, 1] ['Ann', 'Bob', 'Cy']"
+   },
+   {
+    "template": "{{ [1, 'a']|sort }}",
+    "error": "'<' not supported between instances of 'str' and 'int'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ xs|sum }} {{ [1.5, 2]|sum }} {{ words|join }} {{ words|join(', ') }} {{ xs|join('-') }} {{ people|join(',', attribute='name') }}",
+    "output": "6 3.5 bac b, a, c 3-1-2 Ann,Bob,Cy"
+   },
+   {
+    "template": "{{ 'abc'|list }} {{ d|list }} {{ xs|list }} {{ d|items|map('first')|list }}",
+    "output": "['a', 'b', 'c'] ['a', 'b', 'c'] [3, 1, 2] ['a', 'b', 'c']"
+   },
+   {
+    "template": "{{ missing|default('dflt') }} {{ n|default('dflt') }} {{ empty|default('dflt') }} {{ empty|default('dflt', true) }} {{ missing|d('x') }} {{ missing|default }}|",
+    "output": "dflt 7  dflt x |"
+   },
+   {
+    "template": "{{ '5'|int }} {{ 'x'|int }} {{ 'x'|int(3) }} {{ 2.9|int }} {{ '2.9'|int }} {{ '2.5'|float }} {{ 'x'|float }} {{ n|float }} {{ -3|abs }} {{ -2.5|abs }}",
+    "output": "5 0 3 2 2 2.5 0.0 7.0 3 2.5"
+   },
+   {
+    "template": "{{ n|string }}|{{ xs|string }}|{{ nothing|string }}|{{ d|string }}|{{ yes|string }}",
+    "output": "7|[3, 1, 2]|None|{'a': 1, 'b': [1, 2], 'c': {'x': None}}|True"
+   },
+   {
+    "template": "{{ 'abc'|replace('b', 'X') }} {{ 'aaa'|replace('a', 'b', 2) }} {{ n|replace('7', 'x') }}",
+    "output": "aXc bba x"
+   },
+   {
+    "template": "{{ s|safe }}",
+    "output": "  Hello World  "
+   },
+   {
+    "template": "{{ 'a\\nb\\n\\nc'|indent(2) }}|{{ 'a\\nb'|indent(2, true) }}|{{ 'a\\n\\nb'|indent(width=2, blank=true) }}",
+    "output": "a\n  b\n\n  c|  a\n  b|a\n  \n  b"
+   },
+   {
+    "template": "{{ d|tojson }} {{ xs|tojson }} {{ s|tojson }} {{ nothing|tojson }} {{ yes|tojson }} {{ f|tojson }} {{ 'é\\u0001\\\"'|tojson }} {{ {}|tojson }} {{ []|tojson }}",
+    "output": "{\"a\": 1, \"b\": [1, 2], \"c\": {\"x\": null}} [3, 1, 2] \"  Hello World  \" null true 2.5 \"é\\u0001\\\"\" {} []"
+   },
+   {
+    "template": "{{ d|tojson(indent=2) }}|{{ xs|tojson(indent=4) }}|{{ {'a': {}, 'b': []}|tojson(indent=1) }}|{{ people|tojson }}",
+    "output": "{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {\n    \"x\": null\n  }\n}|[\n    3,\n    1,\n    2\n]|{\n \"a\": {},\n \"b\": []\n}|[{\"name\": \"Ann\", \"age\": 31, \"tags\": [\"a\"]}, {\"name\": \"Bob\", \"age\": 25, \"tags\": []}, {\"name\": \"Cy\", \"age\": 31}]"
+   },
+   {
+    "template": "{{ people|selectattr('age')|map(attribute='name')|list }} {{ people|rejectattr('age')|map(attribute='name')|list }} {{ people|selectattr('age', 'equalto', 31)|map(attribute='name')|list }} {{ people|selectattr('tags')|list|length }} {{ people|selectattr('name', 'in', ['Ann', 'Bob'])|list|length }} {{ people|rejectattr('age', 'gt', 30)|list|length }}",
+    "output": "['Ann', 'Bob', 'Cy'] [] ['Ann', 'Cy'] 1 2 1"
+   },
+   {
+    "template": "{{ people|map(attribute='tags', default='none')|list }} {{ words|map('upper')|list }} {{ words|map('replace', 'a', 'z')|join }}",
+    "output": "[['a'], [], 'none'] ['B', 'A', 'C'] bzc"
+   },
+   {
+    "template": "{{ s.strip() }}|{{ s.lstrip() }}|{{ s.rstrip() }}|{{ 'xxhixx'.strip('x') }}|{{ s.upper() }}|{{ s.lower() }}|{{ 'a b'.title() }}|{{ 'aB'.capitalize() }}",
+    "output": "Hello World|Hello World  |  Hello World|hi|  HELLO WORLD  |  hello world  |A B|Ab"
+   },
+   {
+    "template": "{{ text.split(',') }} {{ text.split(',', 1) }} {{ '  a  b c '.split() }} {{ 'a b c'.split(none, 1) }} {{ text.split() }}",
+    "output": "['one', 'two', '', 'three'] ['one', 'two,,three'] ['a', 'b', 'c'] ['a', 'b c'] ['one,two,,three']"
+   },
+   {
+    "template": "{{ 'abc'.split('') }}",
+    "error": "empty separator",
+    "type": "ValueError"
+   },
+   {
+    "template": "{{ 'abc'.startswith('ab') }} {{ 'abc'.endswith('bc') }} {{ 'abc'.startswith(('x', 'a')) }}",
+    "output": "True True True"
+   },
+   {
+    "template": "{{ 'abc'.startswith(1) }}",
+    "error": "startswith first arg must be str or a tuple of str, not int",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'abc'.replace('b', 'X') }} {{ ','.join(['a', 'b']) }}",
+    "output": "aXc a,b"
+   },
+   {
+    "template": "{{ 'abc'.nosuch() }}",
+    "error": "'str object' has no attribute 'nosuch'",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ d.items()|map('last')|list }} {{ d.keys()|list }} {{ d.values()|list }} {{ d.get('a') }} {{ d.get('z') }} {{ d.get('z', 'dflt') }} {{ d.get('z') is none }}",
+    "output": "[1, [1, 2], {'x': None}] ['a', 'b', 'c'] [1, [1, 2], {'x': None}] 1 None dflt True"
+   },
+   {
+    "template": "{% for k, v in d.items() %}{{ k }}={{ v }};{% endfor %}",
+    "output": "a=1;b=[1, 2];c={'x': None};"
+   },
+   {
+    "template": "{% for k in d %}{{ k }},{% endfor %}",
+    "output": "a,b,c,"
+   },
+   {
+    "template": "{% for c in 'abc' %}{{ c }}-{% endfor %}",
+    "output": "a-b-c-"
+   },
+   {
+    "template": "{% for i in range(3) %}{{ i }}{% endfor %}{% for i in range(1, 4) %}{{ i }}{% endfor %}{% for i in range(10, 0, -4) %}{{ i }},{% endfor %}",
+    "output": "01212310,6,2,"
+   },
+   {
+    "template": "{% for x in xs %}{{ loop.index }}/{{ loop.index0 }}/{{ loop.revindex }}/{{ loop.revindex0 }}/{{ loop.length }}/{{ loop.first }}/{{ loop.last }};{% endfor %}",
+    "output": "1/0/3/2/3/True/False;2/1/2/1/3/False/False;3/2/1/0/3/False/True;"
+   },
+   {
+    "template": "{% for x in xs %}{{ loop.previtem }}|{{ loop.nextitem }};{% endfor %}",
+    "output": "|1;3|2;1|;"
+   },
+   {
+    "template": "{% for x in xs %}{{ x }}{% else %}empty{% endfor %}|{% for x in [] %}{{ x }}{% else %}empty{% endfor %}",
+    "output": "312|empty"
+   },
+   {
+    "template": "{% for x in xs if x > 1 %}{{ x }}:{{ loop.index }}:{{ loop.length }};{% endfor %}",
+    "output": "3:1:2;2:2:2;"
+   },
+   {
+    "template": "{% for x in missing %}{{ x }}{% else %}none{% endfor %}",
+    "output": "none"
+   },
+   {
+    "template": "{% for x in n %}{{ x }}{% endfor %}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{% for x in nothing %}{{ x }}{% endfor %}",
+    "error": "'NoneType' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{% for a, b in [[1, 2], [3, 4]] %}{{ a + b }},{% endfor %}",
+    "output": "3,7,"
+   },
+   {
+    "template": "{% for a, b in [[1, 2, 3]] %}{{ a }}{% endfor %}",
+    "error": "too many values to unpack (expected 2)",
+    "type": "ValueError"
+   },
+   {
+    "template": "{% for (a, b) in [[1, 2]] %}{{ a }}{{ b }}{% endfor %}",
+    "output": "12"
+   },
+   {
+    "template": "{% for x in xs %}{% if x == 1 %}{% continue %}{% endif %}{{ x }}{% endfor %}",
+    "output": "32"
+   },
+   {
+    "template": "{% for x in xs %}{% if x == 1 %}{% break %}{% endif %}{{ x }}{% endfor %}",
+    "output": "3"
+   },
+   {
+    "template": "{% for x in xs %}{% for y in words %}{{ x }}{{ y }}{% if loop.last %}!{% endif %} {% endfor %}{% endfor %}",
+    "output": "3b 3a 3c! 1b 1a 1c! 2b 2a 2c! "
+   },
+   {
+    "template": "{% for x in xs %}{% set last = x %}{% endfor %}[{{ last }}]",
+    "output": "[]"
+   },
+   {
+    "template": "{% set a = 1 %}{% for x in xs %}{% set a = x %}{{ a }}{% endfor %}{{ a }}",
+    "output": "3121"
+   },
+   {
+    "template": "{% set ns = namespace(total=0, seen=[]) %}{% for x in xs %}{% set ns.total = ns.total + x %}{% endfor %}{{ ns.total }} {{ ns.seen }} {{ ns.nope }}",
+    "output": "6 [] "
+   },
+   {
+    "template": "{% set ns = namespace() %}{% set ns.a = 1 %}{{ ns.a }}{% set ns.a = ns.a + 1 %}{{ ns.a }}",
+    "output": "12"
+   },
+   {
+    "template": "{% set a = 1 %}{% set a.b = 2 %}",
+    "error": "cannot assign attribute on non-namespace object",
+    "type": "TemplateRuntimeError"
+   },
+   {
+    "template": "{% set x = 5 %}{% if x > 3 %}{% set y = 'big' %}{% endif %}{{ y }}",
+    "output": "big"
+   },
+   {
+    "template": "{% set a = [1, 2] %}{% set b = a + [3] %}{{ b }}{{ a }}",
+    "output": "[1, 2, 3][1, 2]"
+   },
+   {
+    "template": "{% set x = d|tojson %}{{ x }}",
+    "output": "{\"a\": 1, \"b\": [1, 2], \"c\": {\"x\": null}}"
+   },
+   {
+    "template": "{% set messages = messages[1:] %}{{ messages|length }}",
+    "output": "2"
+   },
+   {
+    "template": "{% if n > 5 %}big{% elif n > 2 %}mid{% else %}small{% endif %}",
+    "output": "big"
+   },
+   {
+    "template": "{% if n < 5 %}big{% elif n > 6 %}mid{% else %}small{% endif %}",
+    "output": "mid"
+   },
+   {
+    "template": "{% if n < 5 %}big{% elif n < 6 %}mid{% else %}small{% endif %}",
+    "output": "small"
+   },
+   {
+    "template": "{% if missing %}a{% endif %}[{% if empty %}b{% else %}c{% endif %}]",
+    "output": "[c]"
+   },
+   {
+    "template": "{% if missing.attr %}a{% endif %}",
+    "error": "'missing' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{% if d.c.x is none and d.a == 1 %}ok{% endif %}",
+    "output": "ok"
+   },
+   {
+    "template": "{% if (n > 3) == (n < 9) %}ok{% endif %}",
+    "output": "ok"
+   },
+   {
+    "template": "{{ dict(a=1, b=2) }} {{ dict(d) }} {{ namespace(x=1).x }}",
+    "output": "{'a': 1, 'b': 2} {'a': 1, 'b': [1, 2], 'c': {'x': None}} 1"
+   },
+   {
+    "template": "{{ raise_exception('boom') }}",
+    "error": "boom",
+    "type": "TemplateError"
+   },
+   {
+    "template": "{{ range(3)|list }} {{ range(2, 5)|list }}",
+    "output": "[0, 1, 2] [2, 3, 4]"
+   },
+   {
+    "template": "{{ range(0, 5, 0) }}",
+    "error": "range() arg 3 must not be zero",
+    "type": "ValueError"
+   },
+   {
+    "template": "{{ strftime_now('%d %b %Y') }}|{{ strftime_now('%Y-%m-%d %H:%M:%S %A %B %j %%') }}",
+    "output": "26 Jul 2024|26 Jul 2024"
+   },
+   {
+    "template": "a  {# comment #}  b",
+    "output": "a    b"
+   },
+   {
+    "template": "a {#- comment -#} b",
+    "output": "ab"
+   },
+   {
+    "template": "a\n{# comment #}\nb",
+    "output": "a\nb"
+   },
+   {
+    "template": "a {{- 1 -}} b",
+    "output": "a1b"
+   },
+   {
+    "template": "a {{ 1 -}}\n  b",
+    "output": "a 1b"
+   },
+   {
+    "template": "a\n  {%- if yes -%}  x  {%- endif -%}\nb",
+    "output": "axb"
+   },
+   {
+    "template": "a\n  {% if yes %}\n  x\n  {% endif %}\nb",
+    "output": "a\n  x\nb"
+   },
+   {
+    "template": "a\n{% if yes %}\nx\n{% endif %}\nb\n",
+    "output": "a\nx\nb"
+   },
+   {
+    "template": "a {% if yes %}x{% endif %} b",
+    "output": "a x b"
+   },
+   {
+    "template": "  {% if yes %}x{% endif %}",
+    "output": "x"
+   },
+   {
+    "template": "a\n    {{ 1 }}\n  {% if yes %}x{% endif %}",
+    "output": "a\n    1\nx"
+   },
+   {
+    "template": "line1\n{% for x in xs %}\n  {{ x }}\n{% endfor %}\nlast\n",
+    "output": "line1\n  3\n  1\n  2\nlast"
+   },
+   {
+    "template": "{%+ if yes %}x{% endif %}",
+    "output": "x"
+   },
+   {
+    "template": "a\n   {%+ if yes %}x{% endif %}",
+    "output": "a\n   x"
+   },
+   {
+    "template": "x\n\n\n{% set a = 1 %}\n\n\ny",
+    "output": "x\n\n\n\n\ny"
+   },
+   {
+    "template": "text\n",
+    "output": "text"
+   },
+   {
+    "template": "text\n\n",
+    "output": "text\n"
+   },
+   {
+    "template": "{% if yes %}\n{% endif %}\n",
+    "output": ""
+   },
+   {
+    "template": "{{ '}}' }}{{ '{%' }}{{ \"{{\" }}{{ {'a': {'b': 1}} }}",
+    "output": "}}{%{{{'a': {'b': 1}}"
+   },
+   {
+    "template": "{% set x = {'a': {'b': 1}} %}{{ x }}",
+    "output": "{'a': {'b': 1}}"
+   },
+   {
+    "template": "{{ '%}' }}",
+    "output": "%}"
+   },
+   {
+    "template": "{# a ' quote #}{{ 1 }}",
+    "output": "1"
+   },
+   {
+    "template": "{{ 'a' }}{#- c -#}  {{ 'b' }}",
+    "output": "ab"
+   },
+   {
+    "template": "{{ n if n }}|{{ n if missing }}|",
+    "output": "7||"
+   },
+   {
+    "template": "{{ ('a', 'b')|join }}",
+    "output": "ab"
+   },
+   {
+    "template": "{{ d.b|length }} {{ d['c']['x'] is none }}",
+    "output": "2 True"
+   },
+   {
+    "template": "{{ messages[0]['role'] }} {{ messages[-1].content }} {{ messages|length }} {{ messages[1:]|length }}",
+    "output": "system A 3 2"
+   },
+   {
+    "template": "{{ 'a' if messages[0]['role'] == 'system' else 'b' }}",
+    "output": "a"
+   },
+   {
+    "template": "{{ messages|selectattr('role', 'equalto', 'user')|list|length }}",
+    "output": "1"
+   },
+   {
+    "template": "{% for m in messages %}{{ m.role }}{% if not loop.last %},{% endif %}{% endfor %}",
+    "output": "system,user,assistant"
+   },
+   {
+    "template": "{{ (messages|selectattr('role', 'equalto', 'user')|list)[-1].content }}",
+    "output": "U"
+   },
+   {
+    "template": "{% if messages[0].role == 'system' %}{% set rest = messages[1:] %}{% else %}{% set rest = messages %}{% endif %}{{ rest|length }}",
+    "output": "2"
+   },
+   {
+    "template": "{% if %}",
+    "error": "Expected an expression, got 'end of statement block'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% if n %}",
+    "error": "Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% for %}x{% endfor %}",
+    "error": "Expected an expression, got 'end of statement block'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% for x in xs %}",
+    "error": "Unexpected end of template. Jinja was looking for the following tags: 'endfor' or 'else'. The innermost block that needs to be closed is 'for'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% endif %}",
+    "error": "Encountered unknown tag 'endif'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ ",
+    "error": "unexpected 'end of template'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ 1 +* 2 }}",
+    "error": "unexpected '*'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% macro f() %}{% endmacro %}[{{ f() }}]",
+    "output": "[]"
+   },
+   {
+    "template": "{% macro greet(name, punct='!') %}Hi {{ name }}{{ punct }}{% endmacro %}{{ greet('a') }}|{{ greet('b', '?') }}|{{ greet(name='c') }}|{{ greet('d', punct='.') }}",
+    "output": "Hi a!|Hi b?|Hi c!|Hi d."
+   },
+   {
+    "template": "{% macro f(x) %}\n  [{{ x }}]\n{% endmacro %}{{ f(1) }}{{ f(2) }}",
+    "output": "  [1]\n  [2]\n"
+   },
+   {
+    "template": "{% macro f(x) -%}\n  [{{ x }}]\n{%- endmacro %}{{ f(1) }}{{ f(2) }}",
+    "output": "[1][2]"
+   },
+   {
+    "template": "{% macro fact(n) %}{% if n <= 1 %}1{% else %}{{ n * fact(n - 1)|int }}{% endif %}{% endmacro %}{{ fact(5) }}",
+    "output": "120"
+   },
+   {
+    "template": "{% set greeting = 'hi' %}{% macro f() %}{{ greeting }}{% set greeting = 'inner' %}{{ greeting }}{% endmacro %}{{ f() }}{{ greeting }}",
+    "output": "hiinnerhi"
+   },
+   {
+    "template": "{% macro f(a, b) %}{{ a }}{{ b }}{% endmacro %}{{ f(1) }}",
+    "output": "1"
+   },
+   {
+    "template": "{% macro f(a) %}{{ a }}{% endmacro %}{{ f(1, 2) }}",
+    "error": "macro 'f' takes not more than 1 argument(s)",
+    "type": "TypeError"
+   },
+   {
+    "template": "{% macro f(a) %}{{ a }}{% endmacro %}{{ f(b=2) }}",
+    "error": "macro 'f' takes no keyword argument 'b'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{% macro f(a) %}{{ a }}",
+    "error": "Unexpected end of template. Jinja was looking for the following tags: 'endmacro'. The innermost block that needs to be closed is 'macro'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% macro f(a) %}{{ a|upper }}{% endmacro %}{{ f('x') ~ f('y') }}{{ f(d.b)|length }}",
+    "output": "XY6"
+   },
+   {
+    "template": "{% macro f() %}x{% endmacro %}{% if f() == 'x' %}same{% endif %}",
+    "output": "same"
+   },
+   {
+    "template": "{% set x %}a{{ n }}b{% endset %}[{{ x }}]",
+    "output": "[a7b]"
+   },
+   {
+    "template": "{% set x %}\n  v\n{% endset %}[{{ x }}]",
+    "output": "[  v\n]"
+   },
+   {
+    "template": "{% set x %}a",
+    "error": "Unexpected end of template. Jinja was looking for the following tags: 'endset'. The innermost block that needs to be closed is 'set'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ -n|abs }} {{ -n|string }} {{ -xs[0] }} {{ -d.a }} {{ -f|abs }}",
+    "output": "7 -7 -3 -1 2.5"
+   },
+   {
+    "template": "{% set %}",
+    "error": "Expected an expression, got 'end of statement block'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ [1, 2 }}",
+    "error": "unexpected '}', expected ']'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% if n %}x{% else %}y{% else %}z{% endif %}",
+    "error": "Encountered unknown tag 'else'. Jinja was looking for the following tags: 'endif'. The innermost block that needs to be closed is 'if'.",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ 'unterminated }}",
+    "error": "unexpected char \"'\" at 3",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{% include 'x' %}",
+    "error": "no loader for this environment specified",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ -n|abs }} {{ (-n)|abs }} {{ n|abs|string + 'x' }}",
+    "output": "7 7 7x"
+   },
+   {
+    "template": "{{ 1 + 2 * 3 - 4 / 2 }} {{ (1 + 2) * 3 }} {{ 2 * 3 ** 2 }} {{ 10 - 2 - 3 }} {{ 2 ** 3 ** 2 }}",
+    "output": "5.0 9 18 5 64"
+   },
+   {
+    "template": "{{ 'a' ~ 1 + 2 }}",
+    "error": "can only concatenate str (not \"int\") to str",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 1 ~ 2 + 3 }}",
+    "error": "can only concatenate str (not \"int\") to str",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ not 1 == 2 }} {{ not (1 == 2) }} {{ not not n }} {{ 1 if not no else 2 }}",
+    "output": "True True True 1"
+   },
+   {
+    "template": "{{ n in [7] and not (n in [8]) }}",
+    "output": "True"
+   },
+   {
+    "template": "{{ 'x' if 1 in xs and 2 in xs else 'y' }}",
+    "output": "x"
+   },
+   {
+    "template": "{{ true and missing }}|{{ missing or 'z' }}|{{ missing and 1 }}|",
+    "output": "|z||"
+   },
+   {
+    "template": "{{ missing + 1 }}",
+    "error": "'missing' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ missing > 1 }}",
+    "error": "'missing' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ missing == none }} {{ missing == missing }}",
+    "output": "False True"
+   },
+   {
+    "template": "{{ missing|upper }}|{{ missing|trim }}|",
+    "output": "||"
+   },
+   {
+    "template": "{{ 'a'.split(1) }}",
+    "error": "must be str or None, not int",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'abc'.startswith('x') }} {{ 'abc'.endswith('c') }}",
+    "output": "False True"
+   },
+   {
+    "template": "{{ 'a'.replace(1, 2) }}",
+    "error": "replace() argument 1 must be str, not int",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'a'.replace('a') }}",
+    "error": "replace() takes at least 2 positional arguments (1 given)",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'a'.join() }}",
+    "error": "str.join() takes exactly one argument (0 given)",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'a'.join(1) }}",
+    "error": "can only join an iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 'x'.strip(1) }}",
+    "error": "strip arg must be None or str",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ ' x '.strip(none) }}|{{ 'axa'.lstrip('a') }}|{{ 'axa'.rstrip('a') }}",
+    "output": "x|xa|ax"
+   },
+   {
+    "template": "{{ people|join(',', 'name') }}",
+    "output": "Ann,Bob,Cy"
+   },
+   {
+    "template": "{{ [1, 2]|join(attribute='x') }}|",
+    "output": "|"
+   },
+   {
+    "template": "{{ nothing|first }}",
+    "error": "'NoneType' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n|first }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n|list }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n|reverse }}",
+    "error": "argument must be iterable",
+    "type": "FilterArgumentError"
+   },
+   {
+    "template": "{{ n|sort }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n|sum }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ ['a']|sum }}",
+    "error": "unsupported operand type(s) for +: 'int' and 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ people|selectattr('age', 'nosuch')|list }}",
+    "error": "No test named 'nosuch'.",
+    "type": "TemplateRuntimeError"
+   },
+   {
+    "template": "{{ people|selectattr('age', 'gt')|list }}",
+    "error": "gt expected 2 arguments, got 1",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n|tojson(indent=none) }}",
+    "output": "7"
+   },
+   {
+    "template": "{{ {'a': 1}|tojson(indent=0) }}",
+    "output": "{\n\"a\": 1\n}"
+   },
+   {
+    "template": "{{ [1, [2, []]]|tojson(indent=2) }}",
+    "output": "[\n  1,\n  [\n    2,\n    []\n  ]\n]"
+   },
+   {
+    "template": "{{ nothing|int }} {{ [1]|int }} {{ [1]|float }} {{ 'x'|float(2) }} {{ true|float }} {{ '1e2'|float }} {{ ' 7 '|int }}",
+    "output": "0 0 0.0 2 1.0 100.0 7"
+   },
+   {
+    "template": "{{ 'a'|abs }}",
+    "error": "bad operand type for abs(): 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n is sequence }} {{ d.get('a',) }} {{ range(2,)|list }}",
+    "output": "False 1 [0, 1]"
+   },
+   {
+    "template": "{% macro m(a,) %}{{ a }}{% endmacro %}{{ m(1,) }}",
+    "error": "expected token 'name', got ')'",
+    "type": "TemplateSyntaxError"
+   },
+   {
+    "template": "{{ 5|int }} {{ true|int }} {{ [1, 2]|last }} {{ 'ab'|last }} {{ 'ab'|first }}",
+    "output": "5 1 2 b a"
+   },
+   {
+    "template": "{{ nothing|last }}",
+    "error": "'NoneType' object is not reversible",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ {}|first }}",
+    "output": ""
+   },
+   {
+    "template": "{{ xs|map(attribute='x', default='d')|list }}",
+    "output": "['d', 'd', 'd']"
+   },
+   {
+    "template": "{{ [1]|map(attribute='x')|list|length }}",
+    "output": "1"
+   },
+   {
+    "template": "{{ 'x' is odd }} {{ n is divisibleby }}",
+    "error": "not all arguments converted during string formatting",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n is divisibleby 0 }}",
+    "error": "integer modulo by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ n is divisibleby('a') }}",
+    "error": "unsupported operand type(s) for %: 'int' and 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ d.get is callable }} {{ n is callable }}",
+    "output": "True False"
+   },
+   {
+    "template": "{{ n is in }}",
+    "error": "test_in() missing 1 required positional argument: 'seq'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n is eq }}",
+    "error": "eq expected 2 arguments, got 1",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ missing is callable }}",
+    "output": "True"
+   },
+   {
+    "template": "{{ nothing is string }} {{ 1.5 is number }} {{ 'a' is boolean }}",
+    "output": "False True False"
+   },
+   {
+    "template": "{{ xs[none:] }} {{ xs[:none] }} {{ xs[none::none] }}",
+    "output": "[3, 1, 2] [3, 1, 2] [3, 1, 2]"
+   },
+   {
+    "template": "{{ xs[1.5:] }}",
+    "error": "slice indices must be integers or None or have an __index__ method",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n[1:] }}",
+    "error": "'int' object is not subscriptable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ missing[1:] }}",
+    "error": "'missing' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ xs[::0] }}",
+    "error": "slice step cannot be zero",
+    "type": "ValueError"
+   },
+   {
+    "template": "{{ n() }}",
+    "error": "'int' object is not callable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ d.a() }}",
+    "error": "'int' object is not callable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ -yes }} {{ -no }}",
+    "output": "-1 0"
+   },
+   {
+    "template": "{{ -'a' }}",
+    "error": "bad operand type for unary -: 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ +'a' }}",
+    "error": "bad operand type for unary +: 'str'",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ 1 // 0 }}",
+    "error": "integer division or modulo by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ 1.5 % 0 }}",
+    "error": "float modulo by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ 1.5 // 0 }}",
+    "error": "float floor division by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ 1.5 / 0 }}",
+    "error": "float division by zero",
+    "type": "ZeroDivisionError"
+   },
+   {
+    "template": "{{ 'abc'[-1] }} {{ 'abc'[9] }}|{{ xs[-9] }}|{{ xs['a'] }}|{{ d[1] }}|{{ s['a'] }}",
+    "output": "c ||||"
+   },
+   {
+    "template": "{{ missing[0] }}",
+    "error": "'missing' is undefined",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{% set ns = namespace(a=1) %}{{ ns['a'] }}|{{ ns['b'] }}|{{ ns.a }}",
+    "output": "1||1"
+   },
+   {
+    "template": "{% set ns = namespace(a=1) %}{{ 'a' in ns }}",
+    "error": "argument of type 'Namespace' is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ n[0] }}",
+    "output": ""
+   },
+   {
+    "template": "{{ nothing['a'] }}",
+    "output": ""
+   },
+   {
+    "template": "{{ 'a\\rb\\bc\\fd\\ve\\af\\0g'|length }}",
+    "output": "13"
+   },
+   {
+    "template": "x{{ 'p\\\nq' }}y",
+    "output": "xpqy"
+   },
+   {
+    "template": "{{ n|a.b }}",
+    "error": "No filter named 'a.b'.",
+    "type": "TemplateAssertionError"
+   },
+   {
+    "template": "{{ 'x'|upper|lower|title|capitalize }}",
+    "output": "X"
+   },
+   {
+    "template": "{{ 'a'|string|safe }}",
+    "output": "a"
+   },
+   {
+    "template": "{{ [1, 2, 3]|reverse|first }}",
+    "output": "3"
+   },
+   {
+    "template": "{{ namespace(1) }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ namespace(d).a }}",
+    "output": "1"
+   },
+   {
+    "template": "{{ dict(1) }}",
+    "error": "'int' object is not iterable",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ dict(d, b=2) }}",
+    "output": "{'a': 1, 'b': 2, 'c': {'x': None}}"
+   },
+   {
+    "template": "{{ range('a') }}",
+    "error": "'str' object cannot be interpreted as an integer",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ range(1, 2, 3, 4) }}",
+    "error": "range expected at most 3 arguments, got 4",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ range() }}",
+    "error": "range expected at least 1 argument, got 0",
+    "type": "TypeError"
+   },
+   {
+    "template": "{{ range(1000000000)|length }}",
+    "error": "Range too big. The sandbox blocks ranges larger than MAX_RANGE (100000).",
+    "type": "OverflowError"
+   },
+   {
+    "template": "{{ range(5, 0)|list }}",
+    "output": "[]"
+   },
+   {
+    "template": "{{ range(0, 6, 2)|list }}",
+    "output": "[0, 2, 4]"
+   },
+   {
+    "template": "{% for x in [[1, 2]] %}{% for y in x %}{{ loop.length }}{% endfor %}{% endfor %}",
+    "output": "22"
+   },
+   {
+    "template": "{{ loop }}",
+    "output": ""
+   },
+   {
+    "template": "{{ d.get.x }}",
+    "output": ""
+   },
+   {
+    "template": "{{ nothing.x.y }}",
+    "error": "'None' has no attribute 'x'",
+    "type": "UndefinedError"
+   },
+   {
+    "template": "{{ 5|string|length }}",
+    "output": "1"
+   },
+   {
+    "template": "{{ 'a-b'.split('-')|first }}",
+    "output": "a"
+   },
+   {
+    "template": "{{ d.get('b')|length }}",
+    "output": "2"
+   },
+   {
+    "template": "{{ s|trim|upper|list|first }}",
+    "output": "H"
+   },
+   {
+    "template": "{{ words|map('upper')|join('/') }}",
+    "output": "B/A/C"
+   },
+   {
+    "template": "{{ [1, 2, 3]|map('string')|join }}",
+    "output": "123"
+   }
+  ]
+ },
+ "strftime": {
+  "moment": "2024-07-05T14:03:09",
+  "cases": [
+   {
+    "format": "%Y-%m-%d %H:%M:%S",
+    "output": "2024-07-05 14:03:09"
+   },
+   {
+    "format": "%a %A %b %B",
+    "output": "Fri Friday Jul July"
+   },
+   {
+    "format": "%e|%d|%j",
+    "output": " 5|05|187"
+   },
+   {
+    "format": "%I %p",
+    "output": "02 PM"
+   },
+   {
+    "format": "%y %%",
+    "output": "24 %"
+   },
+   {
+    "format": "100%",
+    "output": "100%"
+   },
+   {
+    "format": "%Q",
+    "output": "%Q"
+   }
+  ]
+ }
+}
